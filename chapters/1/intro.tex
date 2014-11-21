@@ -1,0 +1,88 @@
+\startfirstchapter{Introduction}
+\label{chapter:intro}
+
+Distributed applications are becoming ubiquitous in our everyday lives. We
+send mail with Gmail, communicate with friends and family through Facebook,
+seek entertainment with Netflix, and get directions with Google Maps. These
+types of applications take advantage of distributed storage to help with
+issues including load balancing, parallel data access, durability,
+accessibility, and size constraints.
+
+Distributed storage can be leveraged by smaller scale applications as well. In
+2012, a group of us at UVic decided to make an interesting application for the
+upcoming Geni Engineering Conference that calculated the amount of green space
+contained within a city. While the actual green space counting was a fun
+result, the application was a demonstration of big data on a GENI environment
+\cite{Geni}. Called Green Cities, we took satellite imagery that spanned the
+entire globe and essentially counted pixels within city limits to find the
+amount of green space. We had over 460GB of images that we stored in an
+OpenStack Swift \cite{Swift} storage cluster. The application was extremely
+parallelizable and allowed us to partition the computation over the nodes we
+had. Each node needed access to all files, and since we did not have enough
+space on a single Swift cluster, we had to spread data out over a number of
+nodes. Eventually, we brought the experiment down to give other users access
+to the resources we were using. So the next time we attempted to revive the
+application all the systems, including the file storage, had to be set up
+again. It was clear that having access to data in a globally accessible
+filesystem would be a great asset to these types of experiments.
+
+Experiments and applications use a wide array of storage devices. We used
+Swift but could have easily used Amazon Simple Storage Service \cite{amazons3}
+or any other distributed storage environment. Furthermore, Swift is an open
+source application, but many users don’t have access to or don't want to use a
+Swift cluster. Other distributed storage services may be more convenient for a
+user, physically closer, or provide guarantees (security, availability, or
+otherwise) that a user highly values. Taking into consideration the diverse
+selection of concerns and distributed resources, an application normally
+chooses the best set of resources to address their concerns, often resulting
+in having to interface with multiple different APIs.
+
+\section{Idea}
+
+Here I present the Sage filesystem. Sage is a lightweight Unix-like filesystem
+abstraction on top of backend storage devices. Instead of providing a
+heavyweight client-server system, Sage is designed to sit on top of existing
+storage backends introducing minimal overhead while providing a common
+interface for applications to use. A key point of Sage is that it can abstract
+any number of backends into a single usable filesystem under a common API. A
+user does not need to use backend specific APIs. Instead, they use the Unix-
+like Sage interface to store files remotely in independent systems. Sage works
+over the wide area so it can aggregate backends distributed across the globe
+into a single filesystem. Different backends have different characteristics
+such as physical location, robustness, and security to list a few, so to some
+applications, placing files in a specific backend may be very important. Sage
+provides transparency into the system that allows users to access individual
+components of the filesystem. Much like how each filesystem mounted on a Unix
+system is still addressable, Sage allows users to address specific backends
+individually within the system. If users don’t want to choose a specific
+backend or simply don’t care then Sage takes over and places the file for
+them. This way Sage provides an API to aggregate backends into a single
+distributed filesystem, but still offers the flexibility for applications to
+control file placement throughout the system.
+
+This raises a few questions about what Sage can do:
+\begin{itemize}
+\item Can the system be made transparent enough to give users control over physical location of file data on a per file basis.
+
+\item Can the system provide enough flexibility so users can access many different remote storage platforms.
+
+\item Can the system be made to scale while providing aggregate storage to multiple backends.
+
+\item Does aggregating storage introduce significant overhead to the system compared to using resources separately.
+\end{itemize}
+
+The remainder of the dissertation is organized as follows, Chapter
+\ref{chapter:rel_work} gives background and related work on distributed
+filesystems and filesystem concepts. We look at central and distributed
+filesystem management as well as aggregation in distributed filesystems.
+Chapter \ref{chapter:arch} gives the architecture of Sage. I outline the
+design goals of Sage and decisions on what distributed features (such as
+replication, and consistency) Sage provides. Chapter \ref{chapter:imp} details
+the prototype implementation of Sage. I discuss each Sage component and how it
+interacts with the system, as well as how applications can use and take
+advantage of Sage. Chapter \ref{chapter:exp} gives experimental results with
+Sage using two backends Swift and MongoDB \cite{mongo}. The results report on the
+performance and scalability with microbenchmarks, a case study looking at file
+placement, and finally an examination on what applications make good use of
+Sage versus those that don’t. Chapter \ref{chapter:conc} has concluding
+remarks as well as some directions for future work.

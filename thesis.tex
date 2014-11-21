@@ -1,0 +1,64 @@
+\documentclass[12pt,oneside]{book}
+\include{macros/style}
+\include{macros/use_packages}
+
+
+% my super sweet packages
+\usepackage{listings}
+
+\lstdefinestyle{customc}{
+  belowcaptionskip=1\baselineskip,
+  breaklines=true,
+  language=Python,
+  showstringspaces=false,
+  basicstyle=\footnotesize\ttfamily,
+  keywordstyle=\bfseries\color{green!40!black},
+  commentstyle=\itshape\color{orange!40!black},
+  identifierstyle=\color{blue!40!black},
+  stringstyle=\color{orange},
+}
+\lstset{style=customc}
+
+
+%\usepackage{color}
+\usepackage[usenames,dvipsnames,svgnames,table]{xcolor}
+
+
+
+\newcommand\note[1]{\textcolor{blue}{NOTE: #1}}
+\renewcommand\note[1]{}
+
+\newcommand\todo[1]{\textcolor{red}{TODO: #1}}
+\renewcommand\todo[1]{}
+
+% exponent macro
+\newcommand\e[1]{\ensuremath{\times 10^{#1}}}
+
+\begin{document}
+
+% Front pages
+\input frontpages/front
+
+\newpage
+
+	\include{chapters/1/intro}
+	\include{chapters/2/rel_work}
+	\include{chapters/3/arch}
+	\include{chapters/4/imp}
+	\include{chapters/5/exp}
+	\include{chapters/6/conc}
+	\appendix
+	\include{chapters/appendix/appendix}
+
+% The style of bibliography exemplified here is the "plain",
+% normally used in science theses. This is shown
+% by the entry {plain} below. Substitute the
+% appropriate bibliography style. See also the
+% PDF file "InformationOnBibliographyStyles" in this
+% directory for more choices.
+
+	\TOCadd{Bibliography}
+	\bibliographystyle{plain}
+	\bibliography{thesis}
+
+\end{document}

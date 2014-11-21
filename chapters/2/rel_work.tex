@@ -1,0 +1,763 @@
+\startchapter{Related Work}
+\label{chapter:rel_work}
+
+
+\note{explain VFS somewhere??}
+\note{could do: web storage. github repos. amazon s3. Web/cdns. databases}
+\todo{citations for Swift DropBox. and make it floooooow, ya'know?}
+
+
+\section{Filesystem Concepts}
+
+Before we dive into the background on distributed filesystems, lets take a
+small aside to define some common filesystem terms and concepts. A filesystem
+is traditionally an abstraction over some storage device used to store data.
+This is done by breaking the space available to the filesystem into chunks
+which we call blocks. Blocks normally have a fixed size (which varies from
+filesystem to filesystem) and are the atomic unit of most traditional
+filesystems. A file is stored as a collection of blocks, but there is a
+problem here. Files vary in size while blocks have a fixed size, so either the
+block size has to be sufficiently large so we can fit all reasonably sized
+files into a single one, or we break up a file into a collection of blocks. If
+we use the former case, this means if we want to have blocks large enough to
+store 1gB files (ignoring the issues of handling 1gB buffers), a 1B file will
+use the same space as a 1gB file! Using multiple blocks allows us to represent
+files of arbitrary size without much wasted space, however now we have to
+consider how we keep track of file blocks. As a user we don’t want to have to
+remember how many blocks an individual file has or where they are located to
+access a file, so we want to store some information about the blocks. This is
+known as file metadata and is traditionally stored in a structure called an
+inode. Inodes store metadata about files in a filesystem, not only where
+blocks are located but things like access times, permissions, and total file
+size. We now can describe files in a filesystem, but we still need to be able
+to describe the filesystem as a whole. To do this filesystems reserve some
+space for metadata about the filesystem which describes which blocks are free,
+where the root of the filesystem is, and other data about the filesystem
+layout. Some filesystems have other structures distributed over blocks to hold
+mentadata but the general idea is the same. Filesystems are structured as a
+tree, with directories as nodes and actual files as leaves. The root of the
+directory tree (also known as directory hierarchy) is called the root of the
+filesystem. Now that we have a general idea about what a normal filesystem
+does, lets examine what distributed filesystems are.
+
+
+\section{Distributed Filesystem Key Ideas}
+
+Distributed filesystems have an abundant history in computer science. The idea
+that resources could be accessed over the network has great traction as it
+gives machines access to a potentially enormous wealth of information, not
+available on a single disk. One of the first successful distributed
+filesystems is The Sun Network Filesystem \cite{Sandberg1985}. Known as NFS it
+was developed to allow a user to access the same filesystem from multiple
+workstations, as well as share files with others. NFS relies on a client
+server architecture where a central server holds all filesystem data and
+metadata, and clients connect to the server to access the filesystem remotely.
+NFS uses a remote procedure call (RPC) protocol, also developed by Sun, to
+allow clients to perform operation on the server (or the server perform the
+operation on the clients behalf depending on how you looks at it) and
+manipulate the filesystem. Clients mount NFS locally which interacts with
+their systems virtual filesystem (VFS) layer and allows them to see the NFS
+mount as a local filesystem. Clients can cache reads and writes for files, but
+must specifically check for invalidation with the server. As an aside NSV v3
+allows clients to use weak consistency for improved performance, this however
+can lead to clients using stale data so there is a tradeoff for clients to
+consider \cite{Pawlowski1994}. Since the server handles all client
+transactions it can perform file locking, which it does at the inode level (as
+opposed to individual file blocks) to avoid write conflicts. NFS works very
+well, but the central server becomes a bottleneck at high loads as it is a
+central component of the entire system.
+
+Another big player in distributed filesystems is the Andrew Filesystem (AFS).
+Originally developed for the Andrew computing environment at Carnegie Mellon
+University \cite{Howard1988,Howard1988a,Howard1985}, AFS takes a different
+approach than NFS. It tries to move away from the central server of NSF and
+spread it out over many smaller servers. These “file servers” are each
+responsible for sets of files logically called volumes. Each file server can
+be responsible for multiple volumes, but if two files belong to the same
+volume, then they are managed by the same file server. File servers store
+access control lists to handle authorization and hand out file locks and
+authentication tokens to clients. A location database holds a mapping of files
+to file servers which is organized into logical paths. Each file server has a
+location database that when queried can either return the file if it is
+present, or return the file server that holds the requested file. AFS uses
+client side caching to store files, when a client opens a file, a copy of it
+is sent to the clients machine and cached where it can be manipulated locally.
+The cached file is pushed back to the server when the file is closed. Cache
+consistency and filesystem namespace lookups are done by a Cache manager. The
+cache manager itself keeps a copy of the filesystem directory tree so file
+lookups can be done without contacting the file servers. File servers are
+responsible for invalidating the cache managers contents including any cached
+files or filesystem structure.
+
+NFS and AFS demonstrate two different designs in distributed filesystems. NFS
+has distributed clients but one central component that deals with filesystem
+requests. This simplifies dealing with consistency and locking issues, but
+introduces a single bottleneck. AFS distributes requests over multiple servers
+but must now have some structure describing how to access files, in this case
+a location database, which must be managed by the system. These two ideas have
+been the major driving force behind distributed filesystem development. In the
+next sections we survey the landscape of distributed filesystems. First we
+will take a look at distributed filesystems that use centralized management,
+then examine those with decentralized management.
+
+
+
+\section{Centralized Management}
+
+New classes of applications that require high throughput access to file data,
+either reads or writes, has spurred developments for centralized filesystems.
+In this section we examine filesystems with centralized management
+specifically their design decisions and goals.
+
+
+The fast secure read only filesystem \cite{Fu2000} is a read-only filesystem
+that focuses on availability and security. To achieve high availability it
+uses replication of a central database. This database of files is created on a
+single server, which is then replicated to other machines that actually serve
+files to clients. Clients interact by mounting a modified NFS drive on their
+local filesystem, which allows them to communicate with one of these replica
+databases. Clients only have read access on files provided by the
+replications. The system extensively uses hashing to ensure file integrity,
+and whole filesystem integrity. The central system hashes file and its entire
+directory tree which is then handed to the replicas. This ensures that clients
+can verify the replica has not been modified by the server that is hosting it.
+The filesystem is great for content delivery to many clients as the replicas
+are all identical and the client library (the modified NFS mount) can find the
+best (lowest latency in this case) replica database to make requests to.
+
+
+TidyFS \cite{Fetterly2011} is specifically targeted at write once high
+throughput parallel access applications. According to TidyFS files are
+abstracted into streams of data, which means files are actually composed of
+many parts. In TidyFS a part is the smallest unit of data that can be
+manipulated, however the part size is not fixed and is actually controlled by
+the client. When a client wants to write a file it first chooses which stream
+to write in, if it chooses to write a new stream then it can then choose a
+part size for the stream.  Each part in a stream is lazily replicated and
+stored on multiple OSDs. It uses a centralized metadata server (MDS) to keep
+track of which parts make up a stream, as well as where each part replica is
+located. Part metadata is essentially a key value store mapping part name to
+data in the MDS. Each part is written only once (called immutable) and is
+given a time to live (ttl). When a parts ttl expires it is deleted. An updated
+file is actually rewritten (at least the part that was updated), and the
+metadata server is updated to ignore the old parts of the file. To access a
+file, a client contacts the MDS and is given the location of the closest up to
+date replica, which it then reads directly off of the OSD or set of OSDs if
+multiple parts reside in different locations. A virtual directory tree is
+implied by file pathnames, but no hierarchy actually exists. Since the
+filesystem is highly coupled to the MDS, it too is replicated, and decisions
+are made based on the Paxos algorithm. Clients communicate with the MDS (or an
+MDS in this case) through a client library which can help with load balancing
+by directing to any replica of the MDS. Parts are replicated lazily (implying
+replication does not block file access to the original) and placed
+pseudorandomly on a set of machines, trying to choose machines with the most
+available storage. The replica placement generates a set of three machines
+based on the name of the replica to place, then chooses the machine with the
+most available storage to place the file. If this is not done then small parts
+may get all replicas placed on the same machine, which defeats the purpose of
+replication. An interesting feature of TidyFS is clients can actually query
+for part location to discover where the part physically exists.
+
+
+The EU DataGrid Project (EDG) \cite{Kunszt2005}, \cite{Cameron2004} uses
+Reptor \cite{Kunszt2004} for replication management. Reptor uses replicas to
+improve file availability to grid applications, and uses a central service to
+keep track of replicas of files. When a client asks for a file Reptor finds
+the best replica, and sends the location back to the client. Reptor is
+implemented as a collection of modules (called services), which interact
+together to provide replication, consistency, and security to the EDG. Having
+different services allows Reptor to be extended and easily customized to fit
+the desired workload and application. The remaining services in the EDG host
+the central replica catalog service, as well as the replica optimization
+service called Optor. Optor can gather network information about the grid and
+decide which link should be used to transfer a file stored in Reptor. When a
+file is to be replicated a request is sent to the Replica Manager (Reptor),
+which then contacts a Replica Metadata Catalog. The catalog translate the
+logical file name into a unique identifier and sends it back to the manager.
+The Replica Location Service is then contacted to find all replica locations
+for the file identifier. The locations are then passed to the Replication
+Optimization Service (Optor) to choose the best location for the new replica.
+The file is then replicated to the new location and the new copy is registered
+with the Replica Location Service.
+
+
+The Panasas ActiveScale Storage Cluster \cite{Nagle2004} is a cluster storage
+system with a central MDS, and many OSDs (object storage devices) which
+actually store files. Panasas uses an abstraction it calls an object to store
+file data. Objects contain file data as well as some metadata about RAID
+parameters and data layout and things normally found in an inode such as file
+size and data blocks. This allows the OSD to handle each object differently
+and manage some metadata of the file.The MDS is responsible for the filesystem
+structure which points clients to the OSDs where the file contents are stored.
+Files can be striped in multiple objects over multiple OSDs. To do this the
+MDS holds a map of each file which describes where the file components are
+located. The MDS also handles client cache consistency. Clients are allowed to
+cache file maps, but it is the responsibility of the MDS to tell a client if
+its data is stale invalidating the cache. The last thing the MDS is in charge
+of is file access. It hands out capabilities to clients (which can be cached)
+that describe what a client is able to do to a file. Since capabilities can be
+cached it is the MDS which must invalidate the capability when needed. Apart
+from caching file maps and capabilities the OSDs can cache writes and reads.
+Panasas has specific hardware requirements that take advantage of hardware
+disk caching to improve file throughput. Finally as perviously mentioned all
+metadata not related to the MDSs functions (which are mainly directory
+structure and file access) is stored with the file itself on the OSDs. This
+along with caching of the file map can allow many metadata operations to
+bypass interacting with the MDS thus alleviating load. Clients interact with
+Panasas through a kernel module which allows the filesystem to be mounted on
+the clients machine.
+
+
+XtreemFS \cite{Hupfeld2008} is a filesystem that like Panasas also uses the
+object abstraction for files, and attempts to improve grid filesystem
+performance using file objects.  The filesystem is partitioned into volumes
+which are completely separate from each other, have their own directory
+structure, and their own set of access and replication policies. An overall
+metadata service (called the directory service) in a central server handles
+organization of volumes as well as structures called metadata and replica
+catalogs (MRCs). MRCs hold all the metadata for a set of volumes in a database
+which has an internal replication mechanism, which can replicate data to other
+MRCs. This means any given volume can be present in more than one MRC (the
+volumes metadata simply has to be in the MRCs database). A volume has a set of
+policies which allows the MRC to control the consistency of the replicas
+differently in each volume. This allows XtreemFS to have volumes with
+different policies that restrict placement of files (or replicas in this case)
+to a specific set of OSDs. The directory service connects clients to MRCs and
+is the only centralized component of the filesystem. A client interacts with
+an MRC which describes the volumes where the actual data resides, which the
+client can then contact to perform operations on. Volumes physically reside on
+OSDs. Consistency of a file object is handled by the containing OSD, not the
+volumes MRCs. When given a request the OSDs act in a peer to peer manner with
+other replica holders to serve a file and maintain consistency. OSDs also
+maintain leases for files which along with version numbers for files helps
+maintain consistency, and resolve data conflicts.
+
+
+Lustre \cite{Microsystems2007} is a distributed filesystem that in 2003 ran on
+three of the eight largest clusters in the world \cite{Schwan2003}. It uses a
+centralized MDS to handle metadata with many client object storage servers
+(OSSs) which store actual data. Data is grouped into logical volumes
+maintained by the MDS which are then seen by clients like normal filesystems.
+A standby MDS provides redundancy in case the active MDS encounters a problem
+and all requests done on the active MDS are done on the standby as well. Files
+are represented as a collection of objects on the MDS, which are physically
+stored on the OSSs. Objects belonging to the same file can be stored on
+different OSSs to provide parallel access to parts of a file (called object
+striping). Lustre uses file locking to ensure file consistency through its
+distributed lock manager \cite{Schwan2003}. The lock manager is a centralized
+component that grants locks to distributed clients. Locks can be read, write,
+and some interesting variations that allow clients to cache many operations to
+lower communication costs between the MDS and the client. In really high
+contention spots in the filesystem (such as /tmp) the lock manager will not
+give out a lock, and will actually perform the clients operation itself. This
+avoids having to pass a lock back and forth rapidly. Clients are actually able
+to cache the majority of metadata operations locally and only have to check
+consistency when a new lock is requested.
+
+
+GPFS \cite{Schmuck2002} is a large filesystem which uses unix like inodes and
+directories, but stripes file blocks over multiple storage nodes to improve
+concurrent access to the file. File blocks are typically 256kB and a single
+file may be striped over multiple nodes with block placement determined in a
+round robin format around the nodes in the filesystem. Every file has a
+metanode which is somewhat equivalent to a standard filesystem inode and
+contains the locations of all the blocks of the file. A single node in the
+system known as the location manager handles allocation of new space on other
+nodes in the filesystem using a map structure that identifies unused space. To
+achieve high throughput and ensure consistency GPFS uses distributed file
+locking. A central lock manager is responsible for handing out smaller locks
+for parts of the filesystem. These smaller locks can be broken up into even
+smaller locks by the files metanode, all the way down to byte range sizes on
+files. By locking down to byte range granularity GPFS can easily support
+parallel file access to the same file. All metadata updates to nodes are
+handled by the metanode. Other nodes will update metadata in a local cache
+then send the contents to the metanode which pieces the updates together. GPFS
+does not replicate files, instead it uses a RAID configuration. GPFS can also
+run in a mode if POSIX semantics are not needed for the filesystem. Called
+data shipping mode, no locks are handed out and instead, nodes become
+responsible for specific blocks of data. When operations are performed on the
+data, the request is forwarded to the handling node and carried out on it.
+
+
+PARTE  \cite{Liao2012} is a parallel filesystem that focuses on high
+availability through an active and standby metadata server, as well as
+metadata striping. PARTE uses a central MDS to handle file requests and
+several object storage servers which it calls OSTs. When a client wants to
+perform an operation on a file it first contacts the MDS, which then grabs the
+inode of the requested file, and updates the inode metadata with unique client
+and log ids and the file version number if needed. The inode is then written
+and the metadata response is sent back to the client which can then perform
+operations on the file. The MDS replicates stripes of its metadata on OSTs to
+improve availability and allow the MDS to recover in case of failure.
+Synchronization of metadata on the OSTs is done by the client and log ids that
+are stored with a file, along with the version number. In fact if an MDS is
+recovering from failure (said to be in recovery mode), the OSTs holding
+metadata can process metadata requests from client admittedly at a slower
+rate.
+
+
+The Google File System (GFS) \cite{Ghemawat2003} was developed by Google to
+support distributed applications. Typical google applications are large scale,
+require built in fault tolerance and error detection, automatic recovery, and
+deal with multi gigabyte files. An example of such an application is Bigtable
+\cite{Chang2008}, which is a large key-value store system where data is
+addressed by a key. A key is composed of identifiers including a columns key,
+row key, and time stamp. Bigtable provides very fast access to data as it is
+essentially a sorted map, of all the keys and values, but ultimately stores
+data in GFS. Googles goals were to support many large files of 100MB or more,
+with files being written to a small number of times, and read a large number
+of times. Additionally files are mostly appended to rather than randomly
+written to, and reads are usually large sequential reads. To meet these goals
+the GFS provides a POSIX (Unix) like interface, with files referenced in
+hierarchical directories with path names, and supports create, read, write,
+amd delete operations. Interestingly the GFS implements an atomic append
+operation, which helps simplify locking on files. GFS has a single master that
+stores metadata for the entire filesystem and multiple chunkservers that store
+data. Files are broken up into chunks of 64MB which are replicated (to avoid
+using RAID and still provide data durability) and stored on chunkservers. The
+metadata stored for the cluster includes namespace information like paths,
+permissions, and mappings from files to chunks as well as location of the
+individual chunks. Applications interact with the GFS through client code
+which implements a file system API, but does not go through the operating
+system. When performing operations on files, clients interact with the master
+to get the appropriate chunkservers, then interact directly with the
+chunkservers to access data. All metadata is maintained in RAM by the master,
+but is also flushed to disk periodically. It does not flush chunk locations to
+disk however. In case of a failure the master asks each chunkserver which
+chunk they have which alleviates the need of the master to verify the
+locations of all chunks. The master also contacts each chunkserver
+periodically through a heartbeat message through which it can collect the
+chunkservers state. File locks are done via read and write leases, on a per
+file basis given out and maintained by the master. When files are deleted they
+are not immediately reclaimed, instead they are marked for garbage collection,
+which is then done by the master. No caching of file data is performed on
+clients, as typical workloads require data to large to be cached, but chunk
+locations can be cached. Although clients still need to contact the master for
+leases if they have expired.
+
+
+TLDFS \cite{Wang2007} is a layered distributed filesystem consisting of a
+block device layer, which handles where actual data blocks reside, and a
+system layer which handles locking and communication between different
+filesystem components. The block device layer aggregates all the physical
+storage of the nodes in the filesystem and makes it appear as one large
+resource (when it is in fact a pool of smaller resources). This layer is
+responsible for converting logical addresses from the system layer into
+physical addresses of individual machines. The layer also sends out heartbeat
+messages to all connected storage machines in order to keep track of who
+remains in the filesystem. This allows machines to attach dynamically without
+having to notify the system level of the filesystem. The system layer manages
+filesystem components in both userspace and kernel space of client machines.
+Each node has lock server which is used to manage consistency. The lock server
+maintains queues of locks on individual inodes (called blocks) within the
+filesystem with a given lock server responsible for a set of blocks. Locks are
+either read or write, and have the classic multiple reader one writer
+semantics. When a client writes a file, it acquires a write lock, performs
+file modifications in a local buffer, then flushes the buffer back to the
+server when the lock is released. The filesystem layer also contains an
+interconnect module which contacts all other client nodes within TLDFS using
+heartbeat messages. The interconnect module allows client nodes to request
+locks from the lock manager present on others, and therefore manipulate files
+maintained in other parts of the filesystem.
+
+
+The Hadoop Distributed File System (HDFS) \cite{Shvachko2010} is an integral
+part of the Hadoop Map Reduce Framework, and was created to service the need
+for large scale MapReduce jobs. HDFS is designed to support a very large
+amount of data distributed among many nodes in a cluster and provide very high
+I/O bandwidth. HDFS consists of a single NameNode that acts as a metadata
+server, and multiple DataNodes which store file data. DataNodes are used as
+block storage devices, and do not provide data durability with RAID. Instead
+data is replicated on different DataNodes distributed across the filesystem to
+provide durability in case of node or disk failure. In addition to providing
+robustness distributing data also increases data locality in HDFS. Locality is
+a unique design goal of the HDFS as storage nodes are also frequently running
+MapReduce jobs and high data locality improves the latency of transferring
+data. The NameNode stores metadata for files and directories in an inode
+structure which, like in a normal filesystem, store permissions, access times,
+namespace, and other such attributes. The NameNode also stores locations of
+file replicas as well as the directory tree. The directory tree is all kept in
+main memory and periodically written to disk at a checkpoint. A journal is
+kept of operations performed between checkpoints so the NameNode can recover
+by taking the last checkpoint and replaying the journal. Much the opposite of
+Googles GFS the DataNodes send heartbeat messages to the NameNode to ensure
+they are still reachable. HDFS is not mounted in a normal Unix fashion,
+instead clients interact through the filesystem Java api which supports
+create, read, write, and delete operations. The clients are also exposed to
+the physical location of files so the MapReduce framework can schedule jobs
+close to data. File locking is done by acquiring read and write leases on
+files from the NameNode. The leases are essentially locks that time out after
+a given period of time.
+
+
+MooseFS \cite{CoreTechnologyDevelopmentandSupportTeam2014} uses a central
+server to store metadata and multiple chunk servers to store data much like
+Google's GFS and HDFS.  Data is replicated on chunk servers and can be set per
+file. MooseFS uses other metalog backup servers to log metadata operations and
+periodically grab the metadata out of the central MDS, much like the
+checkpoints done in HDFS. Clients interact with MooseFS through a FUSE module,
+mounted on their local system.
+
+
+
+
+\section{Distributed Metadata Management}
+
+
+Deceit \cite{Siegel1990} is a filesystem that extends NFS. Normally to access
+a given server a client has to mount the NFS server locally, in Deceit as long
+as a client has mounted the Deciet filesystem, then they have access to all
+servers mounted within. Each server still must be mounted to a client, but
+servers communicate with each other and propagate information between them. In
+other words the actual client only has to contact one server in the set of
+servers provided by Deceit to access the entire filesystem, while in NFS the
+client would have to mount each server separately. Deceit replicates files
+over the set of servers and has a single write lock on each file. A file can
+only be updated by the server when it has the write lock for the file.
+
+
+In the Echo \cite{Hisgen1989} distributed filesystem the directory structure
+is maintained in two parts. The upper levels of the directory tree (ie. the
+root and directories close to the root) are described in a global table called
+the global name service. The lower levels of the tree are each handled by a
+separate server, so a server is responsible for a given subtree of the entire
+filesystem. The servers that store data are replicated, but there is an
+arbitrarily designated primary node that handles requests on a given file. The
+primary takes a majority vote of all the file replicas to ensure it is serving
+the correct version. Clients can cache files for quick access and it is the
+primaries responsibility to notify the client if the cached copy needs to be
+invalidated. The global name service is also replicated, but has weaker
+consistency than replicated files. When the global name service is updated
+updates are propagated to all replicas but service does not stop. This implies
+that clients may contact an older version of the global table and can get two
+conflicting answers from two different tables, however upper level directories
+are modified much less than the leaves of directory trees.
+
+
+Tahoe \cite{Wilcox-O'Hearn2008} is a distributed metadata filesystem with
+emphasis on file security. Files and directories (as metadata are just files
+in Tahoe) are distributed throughout hosts in the filesystem using erasure
+coding. As an aside erasure coding is a way of encoding data which is very
+failure resilient. Erasure coding takes a message with K symbols and expands
+it to N symbols, N = K + M, where M are redundant symbols. To reconstruct the
+message from N we only need K symbols out of the N.  Tahoe uses the two
+erasure parameters N, the number of hosts a file is distributed to, and K, the
+number of hosts required to be available for the file to be available. This
+way Tahoe can distribute files over N hosts but only require K of them to be
+available to recover a file. Tahoe also heavily encrypts data with AES and
+uses SHA256 signatures to ensure data integrity. Individual files have
+capabilities stored with them which address what clients can do (or not do) to
+files.
+
+
+Group-based Hierarchical Bloom filter Array (G-HBA) \cite{Hua2007} is a scheme
+to manage distributed metadata using bloom filters to distribute metadata over
+a number of Metadata Servers (MDSs). Bloom filters are structures which can be
+used to check if an element is a member of a set. While space efficient, bloom
+filters are probabilistic so they can not be certain a given element is a
+member of a set, however they do not produce false negatives (only false
+positives) so they can be used to determine if an element is not in a given
+set. G-HBA uses a group of MDSs to hold file metadata where a single given MDS
+is responsible for a set of files. A file that a given MDS is responsible for
+is called the files home MDS. Each MDS hold arrays of bloom filters which
+point to other MDSs so when a file is queried at a given MDS, if the MDS is
+not the files home, then the request gets forwarded to another MDS predicted
+by the bloom filter. Clients can therefore randomly choose an MDS to query for
+any file as they will get forwarded to the files home MDS.
+
+
+Gluster \cite{Gluster} is a filesystem that has no metadata server. Metadata
+is stored with a file which is located by an elastic hash function. Little
+information is present on the Gluster created elastic hash function, however
+the idea boils down to hashing files over a set of resources. This means Hash
+values are used to place files on a set of logical volumes within Gluster.
+When a client requests a file, they hash the path of the file to determine
+which logical volume the file resides on, they then consult a map to find
+which physical server to contact. Volumes are in fact replicated so a given
+file is also replicated over all servers responsible for the volume it belongs
+to. Not having a metadata server removes a single point of failure in the
+system, but also makes it so that last write wins in consistency semantics, as
+there is no watchdog over how many clients are reading and writing a given
+file. Clients can mount Gluster filesystem through a FUSE module. OpenStack
+Swift \todo{cite{SWIFT????} } works in a similar way using a hash function to
+partition data over nodes. Swift however is an object storage system and
+clients interact over a REST interface to contact the storage system.
+
+
+BlobSeer \cite{Nicolae2011} is a filesystem heavily based on versioning to
+provide consistency and concurrency. The architecture consists of: several
+storage servers, one storage service which is queried to find free space,
+several metadata servers, and one version manager which keeps information on
+file snapshots. A main concept in BlobSeer is that data is never modified, it
+is only added and superseded. Data is written in chunks, which receive a
+unique chunk id and are striped over storage servers. files are described by
+structures called a descriptor map which list the set of chunks that belong to
+a specific file. These descriptor maps also receive a unique id and are stored
+in a global map. Versioning is then done by addressing a specific descriptor
+map, which in turn addresses specific chunks, and since data is never deleted
+we are always guaranteed to find the correct version of the file pointed to by
+the desired descriptor map. A file can have many descriptor maps and the maps
+along with the related chunks are referred to as a snapshot of a particular
+file. Like file data Metadata is never deleted either. Metadata for a file is
+stored as a distributed segment tree, where each branch of the tree is
+responsible for a different segment (byte range) of the file (or snapshot of
+the file in this case). Descriptor maps belonging to the specific byte ranges
+are stored with the leaves of the tree, so to get the correct maps required
+for an operation the tree is walked returning the descriptor maps at the
+resulting leaves. The segment trees are stored in a global structure
+distributed over all metadata servers along with all other global structures.
+
+
+The ideas presented by \cite{Blaze1992} aim to utilize client caching to
+reduce load on filesystem servers. Here caches are used to store data on
+clients, but if there is a cache miss clients are allowed to look in other
+clients caches for the desired data. To do this cache hierarchies are
+constructed either statically or dynamically. In a static hierarchy a
+determined set of clients are contacted in case of cache misses (usually in
+multiple layers), while in dynamic hierarchies they are built on the fly.
+Clients can cache heavily shared files up to a certain number of copies. Once
+this number has been reached the server hands out a list of clients with a
+cached copy of the requested file to the requesters. The requester can then
+choose from the list of cached copies to read the file, and can keep the list
+of clients with a real copy cached.  Cache invalidations are propagated the
+same way from the server to the set of machines caching the file, then from
+those machines to the next in the hierarchy. In this sense each node can act
+as a mini server for a file where other nodes can read a file from its cache
+and invalidations are passed the readers when necessary.
+
+
+zFS \cite{Rodeh2003} is a distributed file system design with a traditional
+Unix like interface. It uses object storage to store files, but does not
+distinguish between directories and regular files. zFS is designed to support
+a global cache to improve performance. Files and directories are stored as
+objects on storage servers. Directories contain pointers to other objects,
+much like a directory in Unix storing inode numbers, and results in metadata
+being stored with files much more like a traditional Unix file system. The
+metadata for an object does not have to be placed on the same node so object
+lookups take place separately from object reads and writes. zFS clients can
+directly access objects once a lookup has been done. No replication is done by
+the filesystem, instead data durability is left to the object store to handle
+(either RAID, or replication at the object level). Each node in zFS is
+responsible for objects located on it, and generates leases when an object is
+to be read or written by a client. zFS keeps a global cooperative cache, which
+exists in memory on each machine. The observation is that it takes less time
+to fetch from other machines memory over the network, than it does through the
+local machines disk. When an object is requested it is first searched for in
+the cooperative cache for all machines. If it is found it can be read from the
+cache rather than where it is stored on disk. The cache is managed for
+consistency, and only data that is not being modified on other hosts
+(queryable via leases on the object) is cached which provides strong cache
+consistency.
+
+
+xFS \cite{Anderson1996} distributes management of the filesystem with metadata
+managers, and storage servers. The metadata managers hold metadata for the
+filesystem, while the storage servers hold actual data. Additionally all
+clients participate in a global cache to provide high data availability.
+Metadata is distributed according to a Manager Map, which is globally
+replicated on all clients and servers. The Manager Map is essentially a table
+that maps groups of files to specific metadata managers and can be updated on
+the fly. Metadata managers contain collections of imaps, which describe which
+storage server a file resides on, where the file is located on disk, and the
+location of all cached copies of the file. Any given file is represented by an
+index number. Looking up a file in a directory returns the index numbers of
+the files contained within, which can then be used to find the desired files
+manager, which is then used to get the imap and access the file. Portions of
+files are striped across many storage servers by grouping files into stripe
+groups. If a file stripe exists on a given storage server, then it will exist
+on all storage servers in the stripe group. Stripe groups are identified by a
+Stripe Map, which is globally distributed throughout the filesystem. Managers
+are responsible for file stripe consistency and keep track of all cached
+copies (seen before in the imap). When a stripe is updated the manager must
+invalidate all cached copies of a stripe and update the stripes imap.
+
+
+The authors of \cite{Triantafillou1997} lay out a set of protocols for high
+replication in distributed filesystems where files are replicated at multiple
+servers. Clients are allowed to cache files, but before an operation is
+performed they query a set of servers to see if their copy is up to date. The
+servers will check all replicas of the file queried, and return the most up to
+date version of the file (based on majority), and inform other replicas that
+they are now obsolete. If a file is to be modified a timestamp is generated
+and updates to the file are serialized according to the timestamps in a write
+queue.  This ensures that all up to date replicas have applied the updates in
+the same order.
+
+
+JigDFS \cite{Bian2009} is a distributed filesystem with a high emphasis put on
+security. Much like Tahoe, JigDFS splits up files using erasure codes and
+stored on multiple machines, however the erasure codes are used iteratively
+and with a hash chain to avoid information leakage. To find all the parts of a
+given file a chain of hash values each depending on the previous result is
+used. A distributed hash table keeps track of where files are located (at
+least to start the hash chain), which is globally maintained by the nodes of
+the system. Nodes act in a peer to peer manner maintaining files in the
+filesystem. Each node is responsible for the parts of files stored there, and
+a portion of the distributed hash table.
+
+
+Coda \cite{Satyanarayanan1990} is a distributed file system with the overall
+goal of constant data availability, and takes a different approach than the
+previously examined file systems. Coda uses a few trusted servers to handle
+authentication, but allows clients to aggressively cache data. Coda also uses
+server replication to provide high availability. A client uses a working set
+of servers for file system operations, and is said to be connected if it can
+communicate with at least one of the servers. While connected files are pushed
+to the servers from a local cache when mutated. If a client loses its
+connection to all of the servers it starts operating in disconnected mode, and
+operates solely out of its local cache without pushing changes. When the
+client reconnects to a server, it pushes the local cache to the file system.
+Coda uses an optimistic replication strategy, meaning it pushes changes from
+the cache without knowing the files state the in the file system. Coda
+provides conflict detection to identify when a file is updated on two separate
+clients. If the files modifications do not conflict, Coda automatically
+resolves the conflict, otherwise a new file is created and the conflict must
+be resolved manually. Interestingly Dropbox takes the same approach to
+resolving conflicts and disconnected operation \todo{cite{DROPBOX???}}.
+
+
+DNM \cite{Wei2000} attempts to distribute metadata namespace over metadata
+servers (called DNM servers) using a global table. The table is globally
+replicated and contains the root and the first level of subdirectories (much
+like Echo), the rest of the namespace is partitioned over metadata servers
+into subtrees, which are then handled independently by DNMs. The global table
+holds a mapping of directory to the appropriate DNM server so when a client
+makes a request to the filesystem it queries a server which will look up the
+correct server in the name table and forward the request to it. Clients
+aggressively cache lookup results and the client caches not only the final
+result of the lookup, but all intermediate directories in the request. This
+creates a tree like cache on the client which it can then use to facilitate
+further requests to files that share a portion of past ones. DNM servers hold
+file locations, which again can be cached, and are revalidated when a lookup
+fails on file serving nodes.
+
+
+DMooseFS \cite{Yu2012} aims to distribute metadata around MooseFS using
+multiple independent metadata servers to host filesystem metadata. Each MDS is
+responsible for only a portion of filesystem metadata. The directory structure
+is distributed among the metadata servers using a hash table. When a client
+sends a request to the filesystem, the path of the file is hashed which will
+determine which MDS the request is sent to. The MDS then tells the client
+which set of chunkservers to contact for the file data. The directory
+structure is only partially hashed (much like how Echo and DNM split up the
+directory hierarchy) so an MDS is responsible for a given subtree of the
+directory structure, as each MDS is oblivious to others.
+
+
+Ceph \cite{Weil2006} relies on metadata nodes and storage nodes to provide a
+distributed file system, and maintains them as two clusters, a metadata
+cluster and a storage cluster. Clients interact with the metadata and storage
+clusters separately to perform operations. Metadata for the cluster contains a
+mapping of files to locations as well as other file metadata (size, etc), but
+to locate a file a distribution function is used. Any entity that knows the
+distribution function can compute where in the storage cluster a file is
+located. A hash function is a simple distribution function used by Gluster and
+Swift, but erasure codes like in Tahoe and JigDFS can also be used. This
+eliminates object lookups for locating files, however a lookup is still
+required to manipulate a file's metadata. Ceph distributes the metadata in a
+cluster as a hierarchy, where a given server is responsible for a portion of
+the filesystems structure. The portion of the filesystem each metadata server
+is responsible for can be dynamically updated, which allows flexibility and
+load balancing in the metadata cluster. MDSs hand out capabilities to clients
+that allow them to read and write files from the storage servers OSDs. Files
+are replicated and distributed over the OSDs using the CRUSH algorithm. CRUSH
+or Controlled Replication Under Scalable Hashing \cite{Weil2006a} is an
+algorithm for file placement specifically developed to place object replicas
+in a distributed environment. CRUSH takes an object identifier as input (could
+be a path name or id) and outputs a list of storage devices to place the
+replicas. CRUSH tries to optimize replica placement according to assigned
+storage device weights, where a more heavily weighted device will end up with
+more objects (well, more replicas of different objects). For CRUSH to work it
+needs to know about the storage cluster layout, the weights of each node in
+the cluster, and makes use of a mapping function to essentially hash the
+object identifiers. Looking back at Ceph each OSD stores data locally in an
+Extent and B-tree based Object File System (EBOFS) which supports atomic
+transactions (writes and attribute updates are atomic) and allows Ceph to take
+control of the physical machines block device. The storage cluster is directly
+accessed by clients once they have file locations and capabilities to
+manipulate files. Clients can interact with Ceph through client code either
+linked into applications, or through a kernel module.
+
+
+\section{Existing Filesystem Aggregation and other Concepts}
+
+The user level secure Grid filesystem (SGFS) \cite{Figueiredo2007} modifies
+the NFS protocol to use SSL to ensure secure communication in a grid
+environment. It modifies NFS by adding proxies at the endpoints of
+communication that encrypt NSF traffic using SSL. SGFS allows users to choose
+between encrypting and digitally signing messages for security or just
+digitally signing to improve performance over the former. Additionally the
+protocols used to encrypt and sign messages can be chosen by the user.
+
+
+The InterMezzo \cite{Braam1999} filesystem is a layered filesystem that
+organizes file sets into logical volumes. An entire file set resides on a
+single server and clients mount individual volumes onto their system. A
+central database described which server a volume resides on. Clients can mount
+multiple volumes to create a local directory tree. Any mounted volume can be
+the root of the clients filesystem, and other volumes are mounted inside the
+root. Metadata for file objects are stored with the files themselves which
+makes volumes very similar to local filesystem volumes. When an object is
+updated a permit must be acquired for consistency, which then allows the
+update to be propagated from the updating client to the server. Clients cache
+data and are allowed to operate on the cached data while it is still fresh.
+The cache is managed by a separate process (called Lento) that communicates
+with the server of the cached file set.
+
+
+The Trivial Distributed Filesystem (TDFS) \cite{Voras2006} is a simple
+distributed filesystem aiming to implement remote storage using a simple
+client server model. TDFS consists of two processes, a master and a slave
+process. The master process is mounted on a client system and attaches to a
+slave process that is running on a remote host. The master forwards operations
+performed on the clients system over to the host the slave is running on
+blocking until the operation has completed. A master may only connect to a
+single slave process, therefore to mount multiple remote machines multiple
+master processes have to be run, creating multiple mount points on the client
+system. The slave process is also only connected to one master process.
+
+
+IncFS \cite{Zhao2006} creates a distributed filesystem by combining many NFS
+deployments into a single filesystem. A single NFS server is designated as the
+meta server which stores all the metadata information about the filesystem,
+and the remaining NFS deployments store actual data. IncFS is implemented
+through a virtual filesystem layer which intercepts all independent NFS mounts
+and combines them into a single mountable volume. The volume can be mounted by
+any number of clients and appears just like a single NSF mount. Under the
+hoods IncFS simply mounts all NFS instances and uses one as the metadata
+server to translate logical filenames into physical ones actually present in
+the other NFS mounts.
+
+
+GMount \cite{Dun2009} allows users to mount directories from many remote
+machines into a single local location. By using multiplexing and ssh, remote
+connections are established to remote machines which transfer files over sftp
+when accessed. Entire directory trees can be mounted on multiple clients using
+GMount, which uses last write wins semantics to handle conflicts. The
+architecture is more of a peer to peer model in the sense every machine can
+mount directories from each other. No caching is done by clients.
+
+
+Chirp \cite{Donnelly2012} is a user level distributed filesystem that allows
+the aggregation of many other filesystems to be mounted as a single entity.
+Clients mount the chirp filesystem locally and interact with the Chirp server.
+The Chirp server is a centralized component that handles requests from all
+clients to the Chirp filesystem. The server forwards client requests to
+containing filesystems, managing access control lists on files and
+authentication with Chirp itself. Chirp is very concerned with authentication
+and does so by passing around authentication tokens to make sure clients can
+only access data they are authorized for.
+
+
+Cegor \cite{Shi2004} is an NFS like filesystem, where clients interact with
+servers to handle both file data and metadata requests. Connections in Cegor
+revolve around the notion of semantic views. Normally connections are handled
+through the TCP/IP stack of the server, but in Cegor both clients and servers
+store information that allows communication even when network connections
+disconnect and reconnect with a different TCP connection. This allows clients
+to move between networks and not lose connection to the filesystem, or have to
+reconnect entering credentials again. The actual filesystem consists of an NFS
+like server to serve files and communicate with clients. Clients are allowed
+to cached data and take out read/write leases on files. If a client
+disconnects, a reconciliation step happens where the client validates its
+cache, and then performs the modifications on the new cache contents.

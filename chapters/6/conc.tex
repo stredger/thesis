@@ -1,0 +1,157 @@
+\startchapter{Conclusions}
+\label{chapter:conc}
+
+
+Sage was originally developed to be a Unix filesystem like API on top of
+OpenStack Swift. As we saw in Chapter \ref{chapter:intro} this came from the
+cumbersome way we accessed files from Swift during the Green Cities
+application which added traction to the idea of a globally accessible, wide
+area filesystem. Sage was designed to be lightweight causing little overhead,
+flexible enough to allow multiple backends, and transparent to give
+applications power over where to place files. We achieve lightweight execution
+by having the bulk of Sage exist as a client library with a layered design.
+Clients see a simple filesystem API with familiar calls like open, list, and
+copy. Internally Sage converts client API calls into the appropriate set of
+backend commands using translators. Sage holds a collection of translators for
+each backend in the filesystem which are used to perform file operations in
+the backend on the user's behalf. This way Sage can interact with any backend
+that has a translator turning the backend into a component of the filesystem.
+A dictionary holds translators in Sage, which are addressed by name. This name
+is used by applications to address files and can be used to place files in a
+specific backend.
+
+% Overall the design of Sage works well for its purpose. It is simple to use,
+% highly flexible, and transparent to clients; however these features make
+% designing and implementing some interesting features difficult. The ability
+% to change backends on the fly is interesting but restricting. We can never
+% know if all clients connected to a given backend are connected to the same
+% set, which makes replication, locking .
+
+% When a file is opened in Sage the user is returned a Python file like object which, 
+% to an application, behaves exactly like any other file like object. The only additional 
+% function on files is sync which is used by Sage to synchronize file data with its back end 
+% store. Sync is normally called on file writes and closes, but again clients have control 
+% over when Sage syncs data via additional arguments passed to the standard calls. The only 
+% call not expected in a filesystem API is upload, however clients never actually use this 
+% call as it is used internally to sync files to their respective backends. 
+
+
+
+\section{Future Work}
+
+As we saw in Chapter \ref{chapter:exp} the Sage prototype is usable for real
+experiments. However, there are many features that could be investigated to
+improve Sage.
+
+Even though Sage is quite usable, existing applications have to be modified if
+they want to take advantage of it. A FUSE implementation would allow Sage to
+be mounted within a Unix system and used like any other filesystem mount. FUSE
+intercepts normal filesystem calls  and redirects them into userspace where
+they can be handled by user level programs (such as Sage). This way
+applications could use Sage without having to include Sage specific code,
+although, as we saw in Chapter \ref{chapter:imp} not much is needed. A
+downside to using FUSE is that applications use system calls to interact with
+the filesystem so no Sage specific arguments could be used. This means
+applications could not modify Sage parameters without remounting the
+filesystem. Additionally Sage normally doesn’t go into the VFS layer and
+therefore doesn’t go through the operating system, using FUSE would send
+requests through the OS.
+
+Caching in Sage is done strictly on files, which works well for its purpose
+however files are flushed from the cache when closed. Improving caching by
+holding onto files longer could improve file access times. The client would
+still have to check with the backend (easily done with stat) before reopening
+a cached file to see if it were modified. Along with files, directory
+hierarchies could be cached within Sage to improve file list times. Currently,
+no caching is done on file listings, so Sage contacts the backend every time
+list is called. Cached lists could be used to reduce times (such as listing
+the entire directory tree as done in Chapter \ref{chapter:exp}) and again only
+if the cache validity were maintained by the client. Caching could be
+implemented either at the translator level or in SageFS. If maintained by
+SageFS, then a list cache revalidation would require each backend to resend
+its listing. If done in the translators, each could validate its cache
+independently which makes it the most logical place to implement extended
+caches. Furthermore, this also allows for backend specific behavior in the
+caches which could ease implementation and take advantage of specific backend
+features.
+
+A primitive authentication prototype exists for Sage with Swift backends, but
+otherwise users authenticate with the respective backends via parameters
+passed to SageFS. Users require an existing account on the backends to use
+them. This is fine for deployments controlled by a single user, but for larger
+deployments, like the one used for GEE, a more scalable solution would work
+much better. A robust authentication system could also help implementing
+groups in Sage as it is cumbersome in its current state. Users have to change
+parameters in the translators to examine other users files as shared content
+currently does not exist. Translators do define how users and groups are
+implemented, but no scheme currently exists to place shared files in a given
+users directory hierarchy.
+
+An interesting feature of Sage is that users can place files in a given
+backend, or Sage can place files for users. Currently, the logic for placing
+files randomly chooses a location from the set of translators but can easily
+be extended to make decisions based on various parameters. This idea was the
+driving factor behind making the open call in Sage take additional arguments.
+Placement logic is simply a function in SageFS that takes a filename and any
+optional arguments from open and make decisions about where to place the given
+file. The function could be extended to pick a backend based on latency, file
+size, access patterns, or any other file attributes. As an example assume we
+have an application that produces two types of files, small quickly consumed
+files and large files written as backups. In Sage, placement logic could place
+all small files in the backend with the lowest latency, and place larger files
+in the most reliable backends for durability. In fact, the placement logic was
+specifically written as a single function so it could be overwritten by any
+application if they so choose. This feature allows  applications to define how
+data is placed either by specifying in the path name or providing a function
+that defines it based on some set of parameters. Smarter placement logic could
+use machine learning to examine file access patterns on the fly and adapt file
+placement while the system is running.
+
+As previously discussed in Chapter \ref{chapter:arch} a static Sage deployment
+would benefit the design of key filesystem components such as locking,
+metadata management, and replication. Translators could implement file locking
+along with an extra component deployed with backends. Backends could use
+distributed locking services such as the chubby lock manager
+\cite{Burrows2006} to provide coarse-grained file locking. Translators could
+then check with the backends locking service before contacting the backend for
+file requests. This modular approach fits Sage very well as it maintains the
+flexibility of the system and could easily allow the lock manager to be
+directly queried by applications to help make decisions about file placement.
+
+In Sage, replication could be handled by replication groups (either in SageFS
+or directly in the translators) or consistent hashing as we saw in Chapter
+\ref{chapter:arch}. Versioning could also be done to improve file
+availability. In many of the filesystems we examined in Chapter
+\ref{chapter:rel_work} files are superseded instead of deleted. Sage could
+implement versioning by appending filenames with timestamps and keeping the
+last N versions of a file. Translators could then poll backends and take the
+definitive file to be the version present in the majority of backends, or use
+the latest version that all backends agree on. Unfortunately, the solution
+described is not sufficient in the presence of failures as pointed out by the
+distributed consensus problem \cite{Lamport1983,Lamport1980}, so a consensus
+algorithm may be required to achieve consistency with the versions.
+
+Finally since the performance (not just latency but availability) of Sage is
+closely coupled to the backend used, different translators lead to different
+tradeoffs in performance. Increasing translator diversity by implementing more
+for different backends would increase the diversity of the filesystem as a
+whole and make it much more flexible than it is at the moment.
+
+
+
+\section{Finishing Thoughts}
+
+
+The Sage prototype hit the design goals very well. The layered design makes it
+very flexible as layers communicate over a small API, and adding a new backend
+entails implementing a translator with seven functions. It is simple to use as
+the API seen by clients is modeled after Unix calls. Moreover, the system
+allows clients can define where files are placed and modify the system on the
+fly. System deployment is very simple as the client is a Python package,
+installed like any other, and scripts can be used to set up a Swift cluster
+for use as a Sage backend. Very real experiments can be done with the
+prototype as shown with the genome searching case study in Chapter
+\ref{chapter:exp} and performance scales with the backends of the system.
+Hopefully in the future Sage is used by researchers in the GEE, users
+aggregating cloud storage, students to test filesystem concepts, and anyone
+else who could use a location aware wide area distributed filesystem.

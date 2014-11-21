@@ -1,0 +1,28 @@
+\newpage
+\TOCadd{Abstract}
+
+\noindent \textbf{Supervisory Committee}
+\tpbreak
+\panel
+
+\begin{center}
+\textbf{ABSTRACT}
+\end{center}
+
+
+Modern distributed applications often have to make a choice about how to
+maintain data within the system. Distributed storage systems are often self-
+contained in a single cluster or are a black box as data placement is unknown
+by an application. Using wide area distributed storage either means using
+multiple APIs or loss of control of data placement. This work introduces Sage,
+a distributed filesystem that aggregates multiple backends under a common API.
+It also gives applications the ability to decide where to store file data in
+the aggregation. By leveraging Sage, users can create applications using
+multiple distributed backends with the same API, and still decide where to
+physically store any given file. Sage uses a layered design where API calls
+are translated into the appropriate set of backend calls then sent to the
+correct physical backend. This way Sage can hold many backends at once making
+them appear as the same filesystem. The performance overhead of using Sage is
+shown to be minimal over directly using the backend stores, and Sage is also
+shown to scale with respect to backends used. A case study shows file
+placement in action and how applications can take advantage of the feature.
