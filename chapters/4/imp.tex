@@ -1,37 +1,11 @@
 \startchapter{Implementation}
 \label{chapter:imp}
 
-In this chapter we take a look at how the Sage prototype is implemented. We
-examine each  filesystem object in detail and finally look at how Sage is
-actually used.
+In this chapter, we take a look the implementation of the Sage prototype. We examine each filesystem object in detail and finally look at how Sage is used.
 
 \section{Overview}
 
-\note{Users and groups??? Gotta talk about it somewhere as i do a bit in future work}
-
-SageFS (or Sage) is implemented as a Python client library and is used by
-importing into a  Python project. I chose to use a client library instead of
-system component was because a  client library is much easier to use and
-deploy. Additionally the initial use case for  Sage was for Python
-applications accessing a large repository of satellite imagery as discussed in
-the Green  Cities application in Chapter \ref{chapter:intro}.  Once imported,
-a Sage object can be created to interact with SageFS, which contains a number
-of translator objects. Currently there are only two types of translators,
-SwiftTr and MongoTr  that connect with Swift object stores and MongoDB
-instances respectively. Translators are the components that actually interact
-with backend stores, and essentially translate filesystem  commands into the
-appropriate set of commands for the backend storage. For example, when the
-SageTr object's open method is called on a file in a Swift backend, SageFS
-call the containing  SwiftFS open which downloads the file and stores it in a
-SageFile object for use by the application.  SageFile objects are file
-abstractions built on top of Python files. SageFile objects have two
-subclasses, namely SageMemFile and SageDiskFile objects. Both have the same
-functionality, however  SageMemFile objects exist in memory only, while
-SageDiskFile objects are actually written to disk.  Applications communicate
-with SageFS directly and through the use of SageFiles. To store files in
-backend repositories SageFS communicates with translator objects, notably
-SwiftTr and MongoTr  which actually communicate back to the backend. This way
-Sage can make multiple backends appear  as a single entity, with a common API.
+SageFS (or Sage) is implemented as a Python client library and is used by importing into a  Python project. I chose to use a client library instead of system component was because a  client library is much easier to use and deploy. Additionally the initial use case for  Sage was for Python applications accessing a large repository of satellite imagery as discussed in the Green  Cities application in Chapter \ref{chapter:intro}.  Once imported, a Sage object can be created to interact with SageFS, which contains a number of translator objects. Currently there are only two types of translators, SwiftTr and MongoTr  that connect with Swift object stores and MongoDB instances respectively. Translators are the components that actually interact with backend stores, and essentially translate filesystem  commands into the appropriate set of commands for the backend storage. For example, when the SageTr object's open method is called on a file in a Swift backend, SageFS call the containing  SwiftFS open which downloads the file and stores it in a SageFile object for use by the application.  SageFile objects are file abstractions built on top of Python files. SageFile objects have two subclasses, namely SageMemFile and SageDiskFile objects. Both have the same functionality, however  SageMemFile objects exist in memory only, while SageDiskFile objects are actually written to disk.  Applications communicate with SageFS directly and through the use of SageFiles. To store files in backend repositories SageFS communicates with translator objects, notably SwiftTr and MongoTr  which actually communicate back to the backend. This way Sage can make multiple backends appear  as a single entity, with a common API. 
 
 One important thing to notice here is that Sage does not go through the OS for
 normal operation.  The OS is used for networking and to put opened files on
@@ -39,6 +13,7 @@ disk (if they are requested not to  reside in memory). However, if a
 translator does not go through the OS, an application that  used the `no OS
 translator' could use normal Python file operations and never go through the
 OS!
+
 
 \begin{figure}[h]
 \centering
@@ -374,8 +349,8 @@ this case SwiftHosts and MongoHosts. These objects define connection
 parameters to each of the backends including username, hostname, and the key
 which will identify the filesystem. As an example Figure \ref{fig:swiftconfig}
 shows a configuration dictionary for Swift filesystems and is the dictionary
-that is passed by default to the SageFS constructor shown in Figure
-\ref{fig:sagecode}. The dictionary contains three entries vic, tor, and carl that
+that is passed by default to the SageFS constructor previously shown in Figure
+\ref{fig:sagefscode}. The dictionary contains three entries vic, tor, and carl that
 map to three SwiftHost objects which simply define parameters to connect to a
 Swift repository. Here we see the IP addresses of three Swift installations
 that are used as backends and are actually used in the deployment of SageFS

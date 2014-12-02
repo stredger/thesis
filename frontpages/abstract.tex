@@ -16,7 +16,7 @@ contained in a single cluster or are a black box as data placement is unknown
 by an application. Using wide area distributed storage either means using
 multiple APIs or loss of control of data placement. This work introduces Sage,
 a distributed filesystem that aggregates multiple backends under a common API.
-It also gives applications the ability to decide where to store file data in
+It also gives applications the ability to decide where file data is stored in
 the aggregation. By leveraging Sage, users can create applications using
 multiple distributed backends with the same API, and still decide where to
 physically store any given file. Sage uses a layered design where API calls

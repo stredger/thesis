@@ -2,113 +2,29 @@
 \label{chapter:rel_work}
 
 
-\note{explain VFS somewhere??}
-\note{could do: web storage. github repos. amazon s3. Web/cdns. databases}
-\todo{citations for Swift DropBox. and make it floooooow, ya'know?}
-
-
 \section{Filesystem Concepts}
 
-Before we dive into the background on distributed filesystems, lets take a
-small aside to define some common filesystem terms and concepts. A filesystem
-is traditionally an abstraction over some storage device used to store data.
-This is done by breaking the space available to the filesystem into chunks
-which we call blocks. Blocks normally have a fixed size (which varies from
-filesystem to filesystem) and are the atomic unit of most traditional
-filesystems. A file is stored as a collection of blocks, but there is a
-problem here. Files vary in size while blocks have a fixed size, so either the
-block size has to be sufficiently large so we can fit all reasonably sized
-files into a single one, or we break up a file into a collection of blocks. If
-we use the former case, this means if we want to have blocks large enough to
-store 1gB files (ignoring the issues of handling 1gB buffers), a 1B file will
-use the same space as a 1gB file! Using multiple blocks allows us to represent
-files of arbitrary size without much wasted space, however now we have to
-consider how we keep track of file blocks. As a user we don’t want to have to
-remember how many blocks an individual file has or where they are located to
-access a file, so we want to store some information about the blocks. This is
-known as file metadata and is traditionally stored in a structure called an
-inode. Inodes store metadata about files in a filesystem, not only where
-blocks are located but things like access times, permissions, and total file
-size. We now can describe files in a filesystem, but we still need to be able
-to describe the filesystem as a whole. To do this filesystems reserve some
-space for metadata about the filesystem which describes which blocks are free,
-where the root of the filesystem is, and other data about the filesystem
-layout. Some filesystems have other structures distributed over blocks to hold
-mentadata but the general idea is the same. Filesystems are structured as a
-tree, with directories as nodes and actual files as leaves. The root of the
-directory tree (also known as directory hierarchy) is called the root of the
-filesystem. Now that we have a general idea about what a normal filesystem
-does, lets examine what distributed filesystems are.
+Before we dive into the background on distributed filesystems, let's take a small aside to define some common filesystem terms and concepts. A filesystem is traditionally an abstraction over some storage device used to store data. A filesystem partitions a device's available space into many blocks. Blocks normally have a fixed size (which varies from filesystem to filesystem) and are the atomic unit of most traditional filesystems. A file is stored as a collection of blocks, but there is a problem here. Files vary in size while blocks have a fixed size. So either the block size has to be sufficiently large so we can fit all reasonably sized files into a single one or we break up a file into a collection of blocks. If we use the former case, this means blocks must be large enough to store 1GB files. If we ignore the issues of handling 1GB buffers, the large block size means a 1B file will use the same amount of space as a 1GB file!
+
+Using multiple blocks allows us to represent files of arbitrary size without much wasted space, however now we have to consider how we keep track of file blocks. As a user, we do not want to have to remember how many blocks an individual file has or where they are located to access a file. As a result, we want to store some information about the blocks. This information is known as file metadata and is traditionally stored in a structure called an inode. Inodes store metadata about files in a filesystem, not only where blocks are located but things like access times, permissions, and total file size. 
+
+Using inodes and blocks we can describe files in a filesystem, but we still need to be able to describe the filesystem as a whole. Filesystems reserve some space for metadata about the entire filesystem itself that describes which blocks are free, where the root of the filesystem is, and other data about the filesystem layout. Filesystems are structured as a tree, with directories as nodes and actual files as leaves. The root of the directory tree (also known as the directory hierarchy) is called the root of the filesystem. Now that we have a general idea about what a normal filesystem does let's examine what distributed filesystems are. 
 
 
 \section{Distributed Filesystem Key Ideas}
 
-Distributed filesystems have an abundant history in computer science. The idea
-that resources could be accessed over the network has great traction as it
-gives machines access to a potentially enormous wealth of information, not
-available on a single disk. One of the first successful distributed
-filesystems is The Sun Network Filesystem \cite{Sandberg1985}. Known as NFS it
-was developed to allow a user to access the same filesystem from multiple
-workstations, as well as share files with others. NFS relies on a client
-server architecture where a central server holds all filesystem data and
-metadata, and clients connect to the server to access the filesystem remotely.
-NFS uses a remote procedure call (RPC) protocol, also developed by Sun, to
-allow clients to perform operation on the server (or the server perform the
-operation on the clients behalf depending on how you looks at it) and
-manipulate the filesystem. Clients mount NFS locally which interacts with
-their systems virtual filesystem (VFS) layer and allows them to see the NFS
-mount as a local filesystem. Clients can cache reads and writes for files, but
-must specifically check for invalidation with the server. As an aside NSV v3
-allows clients to use weak consistency for improved performance, this however
-can lead to clients using stale data so there is a tradeoff for clients to
-consider \cite{Pawlowski1994}. Since the server handles all client
-transactions it can perform file locking, which it does at the inode level (as
-opposed to individual file blocks) to avoid write conflicts. NFS works very
-well, but the central server becomes a bottleneck at high loads as it is a
-central component of the entire system.
+Distributed filesystems have an abundant history in computer science. The idea that resources could be accessed over the network has great traction as it gives machines access to a potentially enormous wealth of information, not available on a single disk. One of the first successful distributed filesystems is The Sun Network Filesystem \cite{Sandberg1985}. Known as NFS it was developed to allow a user to access the same filesystem from multiple workstations and share files with other users. NFS relies on a client server architecture where a central server holds all filesystem data and metadata, and clients connect to the server to access the filesystem remotely. NFS uses a remote procedure call (RPC) protocol, also developed by Sun, to allow clients to perform operations on the server. 
 
-Another big player in distributed filesystems is the Andrew Filesystem (AFS).
-Originally developed for the Andrew computing environment at Carnegie Mellon
-University \cite{Howard1988,Howard1988a,Howard1985}, AFS takes a different
-approach than NFS. It tries to move away from the central server of NSF and
-spread it out over many smaller servers. These “file servers” are each
-responsible for sets of files logically called volumes. Each file server can
-be responsible for multiple volumes, but if two files belong to the same
-volume, then they are managed by the same file server. File servers store
-access control lists to handle authorization and hand out file locks and
-authentication tokens to clients. A location database holds a mapping of files
-to file servers which is organized into logical paths. Each file server has a
-location database that when queried can either return the file if it is
-present, or return the file server that holds the requested file. AFS uses
-client side caching to store files, when a client opens a file, a copy of it
-is sent to the clients machine and cached where it can be manipulated locally.
-The cached file is pushed back to the server when the file is closed. Cache
-consistency and filesystem namespace lookups are done by a Cache manager. The
-cache manager itself keeps a copy of the filesystem directory tree so file
-lookups can be done without contacting the file servers. File servers are
-responsible for invalidating the cache managers contents including any cached
-files or filesystem structure.
+Clients mount NFS locally interacting with their systems virtual filesystem (VFS) layer allowing clients to see the NFS mount as a local filesystem. Clients can cache reads and writes for files, but must specifically check for invalidation with the server. As an aside NSV v3 allows clients to use weak consistency for improved performance. However, this consistency model allows clients to use stale data, so a tradeoff exists for clients to consider \cite{Pawlowski1994}. Since the server handles all client transactions, it can perform file locking, which it does at the inode level (as opposed to individual file blocks) to avoid write conflicts. NFS works very well, but the central server becomes a bottleneck at high loads as it is a central component of the entire system. 
 
-NFS and AFS demonstrate two different designs in distributed filesystems. NFS
-has distributed clients but one central component that deals with filesystem
-requests. This simplifies dealing with consistency and locking issues, but
-introduces a single bottleneck. AFS distributes requests over multiple servers
-but must now have some structure describing how to access files, in this case
-a location database, which must be managed by the system. These two ideas have
-been the major driving force behind distributed filesystem development. In the
-next sections we survey the landscape of distributed filesystems. First we
-will take a look at distributed filesystems that use centralized management,
-then examine those with decentralized management.
+Another big player in distributed filesystems is the Andrew Filesystem (AFS). Originally developed for the Andrew computing environment at Carnegie Mellon University \cite{Howard1988,Howard1988a,Howard1985}, AFS takes a different approach than NFS. It tries to move away from the central server of NSF and spread out filesystem operation over many smaller servers. These ``file servers'' are each responsible for sets of files logically called volumes. Each file server can be responsible for multiple volumes, but each volume is managed by one server. File servers store access control lists to handle authorization and hand out file locks and authentication tokens to clients to handle file access. A location database holds a mapping of files to file servers, which is organized into logical paths. Each file server has a location database that, when queried, can either return the requested file if present or return the file server that holds the requested file. AFS uses client side caching to store files, when a client opens a file, a copy of it is sent to the clients machine and cached where it can be manipulated locally. The cached file is pushed back to the server when the file is closed. A client side cache manager handles cache consistency and filesystem namespace lookups. The cache manager keeps a copy of the filesystem directory tree so file lookups can be done without contacting the file servers. File servers are responsible for invalidating the cache managers contents including any cached files or filesystem structure. 
 
+NFS and AFS demonstrate two different designs in distributed filesystems. NFS has distributed clients but one central component that deals with filesystem requests. This simplifies dealing with consistency and locking issues, but introduces a single bottleneck. AFS distributes requests over multiple servers but must now have some structure describing how to access files, in this case a location database, which must be managed by the system. These two ideas have been the major driving force behind distributed filesystem development. In the next sections, we survey the landscape of distributed filesystems. First we will take a look at distributed filesystems that use centralized management, then examine those with decentralized management, and finally visit some filesystems that aggregate resources together.
 
 
 \section{Centralized Management}
 
-New classes of applications that require high throughput access to file data,
-either reads or writes, has spurred developments for centralized filesystems.
-In this section we examine filesystems with centralized management
-specifically their design decisions and goals.
-
+New classes of applications that require high throughput access to file data, either reads or writes, has spurred developments for centralized filesystems. In this section, we examine filesystems with centralized management specifically their design decisions and goals.
 
 The fast secure read only filesystem \cite{Fu2000} is a read-only filesystem
 that focuses on availability and security. To achieve high availability it
