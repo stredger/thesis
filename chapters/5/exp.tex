@@ -3,11 +3,11 @@
 
 %\section{Overview}
 
-In this Chapter we examine the performance of Sage as well as how Sage performs in terms of the design goals. Specifically we look at the overhead of filesystem calls from within Sage versus performing the same calls outside of Sage. File reads and writes are measured to see the overhead on file operations, and file lists, removes, and creates are measured to see the overhead on filesystem operations. All measurements are made with the current implementation using two backends Swift and MongoDB. Furthermore, all experiments were performed on Emulab as I wanted the results to be as reproducible as possible \cite{emulab}.
+In this Chapter we examine the performance of Sage as well as how Sage performs in terms of the design goals. Specifically we look at the overhead of filesystem calls from within Sage versus performing the same calls outside of Sage. File reads and writes are measured to see the overhead on file operations, and file lists, removes, and creates are measured to see the overhead on filesystem operations. All measurements are made with the current implementation using two backends Swift and MongoDB. The experiments use the same data schema for Swift. The directory heirarchy is implied by the stored object names in Swift. For MongoDB however the schemas are slightly different. Going directly to MongoDB files are stored as \textit{fullpath:data} pairs, while going through Sage to MongoDB files are stored as \textit{path:filename:data}. I do this as the most natural way to store files in MongoDB is to use \textit{fullpath:data}, so going directly to the backend uses that schema. The translator does not as I wanted to make paths queryable within the translator. This implementation detail reinforces the fact that the translator implementation makes a difference to the filesystem performance as we will see later in the chapter. Finally, all microbenchmark experiments were performed on Emulab as I wanted the results to be as reproducible as possible \cite{emulab}.
 
-We then look at a case study of an application using Sage to perform analysis on human and viral genomes specifically looking at how an application can take advantage of file placement within Sage. Finally, we conclude with an examination of types of applications that could take advantage of what Sage offers, and those that would be better off using a different system.
+After the microbenchmarks we then look at a case study of an application using Sage to perform analysis on human and viral genomes, specifically looking at how an application can take advantage of file placement within Sage. Finally, we conclude with an examination of types of applications that could take advantage of what Sage offers, and those that would be better off using a different system.
 
-In the spirit of reproducibility, all the benchmarks are scripted and can be found at https://github.com/stredger/sagebench, while the case study can be found at https://github.com/stredger/dnasearch. Scatterplots for all data presented in this section can be found in Appendix \ref{chapter:appendix}.
+In the spirit of reproducibility, all the benchmarks are scripted and can be found at \url{https://github.com/stredger/sagebench}, while the case study can be found at \url{https://github.com/stredger/dnasearch}. Scatterplots for all data presented in this section can be found in Appendix \ref{chapter:appendix}.
 
 
 \section{Microbenchmarks}
@@ -23,13 +23,11 @@ The Emulab nodes had a small disk size, so the 100MB tests were performed slight
 
 The platforms I measured were Swift, MongoDB, Sage using a Swift backend, Sage using a MongoDB backend, and the local disk. I chose these to look at the performance overhead of going through Sage compared to Swift and Mongo. The local disk is used as a measuring stick to put the measurements into context.
 
-\todo{swift using loopback xfs}
-
 
 \input chapters/5/table.tex
 
 Tables \ref{tab:microput} and \ref{tab:microget} summarize the micro
-benchmark test results for all file sizes and backend stores.
+benchmark test results for all file sizes and backend stores. All times reported in the tables are in milliseconds.
 
 
 
@@ -43,7 +41,6 @@ benchmark test results for all file sizes and backend stores.
 \caption[File Put Multiplot]{Multiplot for file Put times showing Median, Mean, Max, and Min times}
 \label{fig:multiput}
 \end{figure}
-
 
 Figure \ref{fig:multiput} shows the results for all platforms to upload, or `put', a file into their respective backends. We use the log of the file upload time so we can see the overall trend as the file size increases by an order of magnitude for each test. We look at the median of each value to get a good representation of the upload time. Outliers tend to skew the mean and, being deterministic, computer measurements tend to clump in stratifications. The median is an attempt to use the most common stratification to represent the test result. Furthermore, the minimum times are quite similar to the medians, which implies the mean is skewed by some significant outliers. The outliers are shown in the max times with some being orders of magnitude larger than the medians.
 
@@ -67,7 +64,8 @@ The median MongoDB times are slightly higher than the local times; however Mongo
 As expected SageFS using MongoDB had slightly larger median upload times than just MongoDB. Sage using MongoDB also has some of the largest max times of all the measurements. Obviously Sage using MongoDB encounters the same performance issues as just plain MongoDB, but also the implementation of the translator causes some additional overhead. SageFS stores files in MongoDB based on the filename and path, while internally MongoDB identifies every record by assigning a unique id. To write to a file, the MongoDB translator must first check if the requested path and filename exists within MongoDB. If the path exists the translator modifies the record, else it creates a new file at the specified path. If we simply try to upload the same path to modify a file without addressing by id, a new record will be created with the same path name, and we end up with duplicate records. File lookups  are handled quite efficiently by MongoDB's internal indexing, however in the worst case it could add noticeable overhead. For future implementations, if the file lookup overhead becomes a serious bottleneck an id could be generated by hashing the path name with a collision resistant hash function. However, there is always the risk of a collision that would cause two files to be mapped to the same id!
 
 
-Swift times were consistently the slowest over all the runs, however the Swift setup was the only backend that used two machines so communication between the two comes into play. Regardless the test are not to show a comparison between Swift and Mongo, rather to show a comparison between using Swift or using SageFS with a Swift backend. All the measurements for Swift were quite consistent with each plot Median, Mean, Max, and Min having the same shape. One thing to note is that the time to put 1k files is larger than 10k, 100k and even 1mB files. Figure \ref{fig:swiftlogpointput} shows a scatterplot of all Swift measurements. Surprisingly we actually see that the variance is quite small for 1k files as well, which means the larger times are most likely not due to random network fluctuations. Regardless the Swift setup I used has problems with smaller files, either the actual file placement by Swift or the files on the underlying xfs filesystem that Swift uses. 
+Swift times were consistently the slowest over all the runs, however the Swift setup was the only backend that used two machines so communication between the two comes into play. Regardless the test are not to show a comparison between Swift and Mongo, rather to show a comparison between using Swift or using SageFS with a Swift backend. All the measurements for Swift were quite consistent with each plot Median, Mean, Max, and Min having the same shape. One thing to note is that the time to put 1k files is larger than 10k, 100k and even 1MB files. Figure \ref{fig:swiftlogpointput} shows a scatterplot of all Swift measurements. Surprisingly we actually see that the variance is quite small for 1k files as well, which means the larger times are most likely not due to random network fluctuations. Regardless the Swift setup I used has problems with smaller files, either the actual file placement by Swift or the files on the underlying xfs filesystem that Swift uses. 
+
 
 \begin{figure}[h]
 \centering
@@ -77,6 +75,39 @@ Swift times were consistently the slowest over all the runs, however the Swift s
 \caption[Swift Put Scatterplot]{Scatterplot of all times to put files into Swift. $100$ runs were performed for each filesize.}
 \label{fig:swiftlogpointput}
 \end{figure}
+
+
+The overhead of going through Sage is shown in Figure \ref{fig:medianputoverhead} and the times overhead is found in Table \ref{tab:putoverhead}. From these visualizations we can see the times overhead decreses for both experiments. While the overhead does increase, it increases slower than the actual operation times so the times overhead decreases.
+
+\begin{figure}[h]
+\centering
+\resizebox{.9\linewidth}{!}{
+\includegraphics{figures/plots/micro/all/mediandiffput}
+}
+\caption[Median File Put Overhead]{Overhead of performing a file Put going through Sage using Median times.}
+\label{fig:medianputoverhead}
+\end{figure}
+
+
+\begin{table}
+\centering
+\label{tab:putoverhead}
+\begin{tabular}[h]{l|c|c}
+
+ & \textbf{Swift Overhead} & \textbf{Mongo Overhead} \\
+\hline
+\textbf{1k} & $1.3x$ & $4.9x$ \\
+\textbf{10k} & $2.4x$ & $4.5x$ \\
+\textbf{100k} & $2.2x$ & $3.2x$ \\
+\textbf{1m} & $1.6x$ & $1.4x$ \\
+\textbf{10m} & $1.2x$ & $1.5x$ \\
+\textbf{100m} & $1.1x$ & $NA$ \\
+\\
+
+\end{tabular}
+\caption{Times Overhead for File Put Times}
+\end{table}
+
 
 
 
@@ -94,20 +125,49 @@ Swift times were consistently the slowest over all the runs, however the Swift s
 
 The second microbenchmarks measured times to get files using read() or the appropriate backend call to download file data into Sage. The plots, shown in figure \ref{fig:multiget}, look very similar to the put times; we still have the local disk with the lowest times and backends using Swift with the highest. SageFS tests using Swift and MongoDB backends were slightly slower than using the backends without Sage. We do see that Sage using MongoDB had very high max times, but this time MongoDB by itself did not show the same large maximums. The MongoDB time discrepancies may be due to reading returned data into a SageFile as the contents must be decoded from BSON when placed into a SageFile. However, could also just be an outlier in connecting to MongoDB.
 
+The overhead to get a file through Sage is shown in Figure \ref{fig:mediangetoverhead} and the times overhead is found in Table \ref{tab:getoverhead}. From these visualizations we can see the times overhead decreses for Swift, while it increases for Mongo. This is most likely due to placing the downloaded data from MongoDB into a SageFile. Since the download times are so small for MongoDB, moving data into buffers is the bulk of the Get times. Luckily however, the increasing overhead stops at 10MB files as this is the max size that MongoDB supports.
+
+\begin{figure}[h]
+\centering
+\resizebox{.9\linewidth}{!}{
+\includegraphics{figures/plots/micro/all/mediandiffget}
+}
+\caption[Median File Get Overhead]{Overhead of performing a file Get going through Sage using Median times.}
+\label{fig:mediangetoverhead}
+\end{figure}
+
+
+\begin{table}
+\centering
+\label{tab:getoverhead}
+\begin{tabular}[h]{l|c|c}
+
+ & \textbf{Swift Overhead} & \textbf{Mongo Overhead} \\
+\hline
+\textbf{1k} & $9.6x$ & $2.9x$ \\
+\textbf{10k} & $2.8x$ & $2.8x$ \\
+\textbf{100k} & $2.8x$ & $2.8x$ \\
+\textbf{1m} & $2.6x$ & $3.4x$ \\
+\textbf{10m} & $2.0x$ & $3.85x$ \\
+\textbf{100m} & $2.0x$ & $NA$ \\
+\\
+
+\end{tabular}
+\caption{Times Overhead for File Get Times}
+\end{table}
+
+
 
 \section{Scalability}
 \label{sec:scaleability}
 
-The second set of benchmarks tested the scalability of Sage and the backend stores Swift and MongoDB. I also wanted to test how Sage performed when it made file placement decisions. To test random performance, I ran a test (sagerandom) where Sage chose to place a file randomly in either Swift or Mongo. For all other tests involving Sage, files are explicitly requested to be placed in either Swift or MongoDB backends.
+The second set of benchmarks tested the scalability of Sage and the backend stores Swift and MongoDB. I also wanted to test how Sage performed when it made file placement decisions. To test random performance, I ran a test (sagerandom) where Sage chose to place a file randomly in either Swift or Mongo. For all other tests involving Sage, files are explicitly requested to be placed in either Swift or MongoDB backends. I do not test the scalability in terms of number of backends. I do this because all the implemented backends communicate with REST calls, and most filesystem operations use only one or two backends. Using REST means backends are only contacted when they are involved in a filesystem operation, and no connections have to be maintained within Sage. Currently, file operations that do use all the backends iterate through them performing the operation and collecting the results. Future implementations could use caching or perform the operations asynchronously.
 
 The scalability tests measure times to create, list, and remove files as the number of files increases in the backend. The create test successively added up to 1000 1KB files, so the first iteration had zero previously existing files while the last had 999. I did the testing on Emulab that has an experiment limit of 16 hours. Unfortunately, I could only gather ten iterations of each run within the time. I could have run more iterations over multiple experiment times (or in parallel), but I wanted to have results from the same experiment that could be easily reproduced.
 
 \subsection{Listing Files}
 
-Figure \ref{fig:scalelistmedian} shows the median times to list files. We can see listing files in MongoDB took a very short amount of time compared to the other backends. Additionally MongoDB listing had little  variation over all 10000 iterations. Sage using MongoDB however took the largest amount of time. We can see the very first iteration, where only one file exists already, was larger than just using Mongo. Like most operations in Sage, when we list files we can directly address a backend or choose not to. In the list test, I called the list() method on the entire Sage filesystem so list() connected to both backends Swift and MongoDB. Even though there were no files present in the Swift repository, Sage still had to connect to Swift and get back a list on the empty backend. This explains why both Sage tests have similar times for zero existing files, which seems to be limited by Swift.
-
-For tests using Sage, the objects returned from the Swift and MongoDB client libraries have to be manipulated to return reasonable paths for Sage. Sage manipulates a list of Python dictionaries returned from the backends to extract the path name from other data. In MongoDB’s case, Sage sees the entire record including data. So a list on MongoDB returns all files in the backend! This solution obviously does not scale with larger files; however it is an implementation detail of list() in the MongoDB translator. Furthermore with MongoDB, Sage has to concatenate two fields in a returned MongoDB record to construct a file path. This Python manipulation makes Sage using Mongo have the largest increase in time as the number of files grows, by a large margin.
-
+Figure \ref{fig:scalelistmedian} shows the median times to list files and Figure \ref{fig:difflist} shows just the overhead. We can see listing files in MongoDB took a very short amount of time compared to the other backends. Additionally MongoDB listing had little  variation over all 10000 iterations. Sage using MongoDB however took the largest amount of time. We can see the very first iteration, where only one file exists already, was larger than just using Mongo. Like most operations in Sage, when we list files we can directly address a backend or choose not to. In the list test, I called the list() method on the entire Sage filesystem so list() connected to both backends Swift and MongoDB. Even though there were no files present in the Swift repository, Sage still had to connect to Swift and get back a list on the empty backend. This explains why both Sage tests have similar times for zero existing files, which seems to be limited by Swift.
 
 \begin{figure}[h]
 \centering
@@ -116,6 +176,17 @@ For tests using Sage, the objects returned from the Swift and MongoDB client lib
 }
 \caption[Median file list times]{Median times to perform list for each test run. Each test was performed $10$ times with an increasing number of files already existing from $0$ to $999$.}
 \label{fig:scalelistmedian}
+\end{figure}
+
+For tests using Sage, the objects returned from the Swift and MongoDB client libraries have to be manipulated to return reasonable paths for Sage. Sage manipulates a list of Python dictionaries returned from the backends to extract the path name from other data. In MongoDB’s case, Sage sees the entire record including data. So a list on MongoDB returns all files in the backend! This solution obviously does not scale with larger files; however it is an implementation detail of list() in the MongoDB translator. Furthermore with MongoDB, Sage has to concatenate two fields in a returned MongoDB record to construct a file path. This Python manipulation makes Sage using Mongo have the largest increase in time as the number of files grows, by a large margin.
+
+\begin{figure}[h]
+\centering
+\resizebox{.9\linewidth}{!}{
+\includegraphics{figures/plots/scale/all/difflistmedian}
+}
+\caption{File list time overhead.}
+\label{fig:difflist}
 \end{figure}
 
 Sage using Swift and Swift by itself showed fairly consistent results with each other. Sage times were slightly larger, most likely due to the aforementioned Python object manipulation. Swift did have some anomalies where times increased, then became stable again (stable meaning following the trend visible in the plot). Most likely these are due to Swift getting overwhelmed while flushing data to its underlying xfs filesystem, or clearing some cached data somewhere. Interestingly, such trends are not visible in Sage using Swift. Either the number of iterations was low enough that I did not encounter the anomalies in the Sage runs or going through Sage allowed enough time for Swift to handle all requests without overloading. The only other noticeable points are the high median times with zero files present. This could be due to caching issues within Swift. Figure \ref{fig:scaleswiftlistscatter} shows that all times had variability, and the zero times were by no means the highest, so the very first run could be encountering more cache misses than others. As always though the times could be an artifact of the small number of runs.
@@ -131,15 +202,13 @@ Sage using Swift and Swift by itself showed fairly consistent results with each 
 
 Finally, we take a look at Sagerandom. In this test, files were randomly assigned to the Swift or MongoDB backends. Interestingly we see the times are in between Sageswift and Sagemongo. Since approximately half the files are in each backend, it makes sense that placing files randomly essentially splits the difference and ends up approximately halfway in between. This shows the scaling is tied to the backends and unsurprisingly the overhead of having the filesystem naively choose the location is insignificant. More sophisticated file placement could incur more overhead depending on the complexity of the file placement function within Sage.
 
+
+
 \subsection{Creating Files}
 
 Figure \ref{fig:scalecreatemedian} summarizes the results of creating files for each test. Sageswift had the largest times, and MongoDB had the lowest. Again Sagemongo shows an increase in times while MongoDB does not. We see something similar in the microbenchmarks where we discuss how Sagemongo must search for existing files before it creates a new one. Here we see the cost of searching for existing files increase as more are present in the backend. All other tests create times did not increase significantly as the number of files increased.
 
 Swift is relatively consistent but again we see bumps not present with Sageswift. Like before, this is most likely overloading Swift or again variation we missed in Sageswift with the small number of runs. Since we do see the bumps in all Swift plots overloading is a likely culprit however the exact cause remains unknown. 
-
-Sageswift was by far the slowest, with median times about three times larger than normal Swift. Previously I argued that Sage needed to read data into a SageFile (and therefore an extra buffer) to upload to the desired backend. While this is true, Sagemongo also has to move data into a SageFile so we can not attribute all the overhead to SageFiles. I also argued that Swift had trouble with small 1KB files, which again we see here; however we would expect Swift and Sageswift to be closer if these were the only factors influencing the create time. To create a file in Sageswift, we call SageFS's open(), which is forwarded to the Swift translator. In the translator Sage first tries to download the file from Swift to ensure the file is not accidentally overwritten. The swiftclient module throws an exception if the file does not exist; which Sage then catches and can now safely create the file. So to create a file Sage must contact Swift twice much like Sagemongo talks to MongoDB twice. The good news is that the overhead of talking to Swift is fixed and should become a smaller portion of the overall time the larger the file becomes. However, this does mean that communicating with Swift (or MongoDB) is noticeable. Even more so with create calls as we incur the cost twice. 
-
-Finally, we look at Sagerandom. The plot has three stratifications, two matching the Sageswift and Sagemongo plots closely while the third sits in the middle of the two. Since with Sagerandom files are randomly placed in either Swift or MongoDB, we would not expect to find middle values as no actual values exist between Swift and MongoDB. However, since I used ten iterations, if half of the files are using Swift and the other half using MongoDB, the median point will be a split between them, which is precisely what we see.
 
 \begin{figure}[h]
 \centering
@@ -150,16 +219,27 @@ Finally, we look at Sagerandom. The plot has three stratifications, two matching
 \label{fig:scalecreatemedian}
 \end{figure}
 
+Sageswift was by far the slowest, with median times about three times larger than normal Swift. Previously I argued that Sage needed to read data into a SageFile (and therefore an extra buffer) to upload to the desired backend. While this is true, Sagemongo also has to move data into a SageFile so we can not attribute all the overhead to SageFiles. I also argued that Swift had trouble with small 1KB files, which again we see here; however we would expect Swift and Sageswift to be closer if these were the only factors influencing the create time. To create a file in Sageswift, we call SageFS's open(), which is forwarded to the Swift translator. In the translator Sage first tries to download the file from Swift to ensure the file is not accidentally overwritten. The swiftclient module throws an exception if the file does not exist; which Sage then catches and can now safely create the file. So to create a file Sage must contact Swift twice much like Sagemongo talks to MongoDB twice. The good news is that the overhead of talking to Swift is fixed and should become a smaller portion of the overall time the larger the file becomes. However, this does mean that communicating with Swift (or MongoDB) is noticeable. Even more so with create calls as we incur the cost twice. 
+
+Next, we look at Sagerandom. The plot has three stratifications, two matching the Sageswift and Sagemongo plots closely while the third sits in the middle of the two. Since with Sagerandom files are randomly placed in either Swift or MongoDB, we would not expect to find middle values as no actual values exist between Swift and MongoDB. However, since I used ten iterations, if half of the files are using Swift and the other half using MongoDB, the median point will be a split between them, which is precisely what we see.
+
+Figure \ref{fig:diffcreate} shows the overhead for the create tests. Swift has a somewhat stable overhead, while MongoDB has a slightly increasing overhead for create times. Again this is most likely due to how the translator is implemented, having to search files as previously mentioned.
+
+\begin{figure}[h]
+\centering
+\resizebox{.9\linewidth}{!}{
+\includegraphics{figures/plots/scale/all/diffcreatemedian}
+}
+\caption{File create time overhead.}
+\label{fig:diffcreate}
+\end{figure}
+
 
 \subsection{Removing Files}
 
 Finally, we take a look at remove file times, which measures the time to remove a file as an increasing number of files are present in a given backend. The remove test first gets a list of all files present in the desired backend then removes them one by one measuring the time after each removal. 
 
-The results are summarized in Figure \ref{fig:scaleremovemedian}. Again we see the MongoDB instance is quicker than Swift, but this time MongoDB scales with the number of files present, while Swift does not. Sagemongo scales slightly worse than MongoDB by itself, which is somewhat surprising as on the client side Sagemongo only performs an extra string split and a few function calls than MongoDB by itself. However, there is a difference in how Sagemongo and MongoDB stores test data. Sagemongo stores file path and name separately, while directly using MongoDB stores the full path as one entity. I store the file path and name separately in Sagemongo as it is easier to support queries on paths with the two split.
-
-We see another bump in the Swift times and again it is absent from Sageswift. We do, however, see some variation in Sagerandom with many files. This variation may be similar to the bumps we see in Swift, but it would be incorrect to assume so with the amount of variation we see. Sageswift and Swift have very similar performance, with Sageswift slightly lower than Swift. This could be attributed to how I wrote the scalability test. To test Swift I have to perform a dictionary lookup to get the correct path name while Sageswift is supplied the path already. I do this as the list call returns either a list of paths, such as with Sageswift, or the raw objects from the swiftclient library as done with Swift.
-
-Sagerandom follows Sagemongo until the midpoint; then has a few points in the middle (the medians when exactly 50\% of the points were in each backend), and finally follows Sageswift. Again this shows scaling exactly like the backend the random part is using. The reason we see the three stratifications separated comes from the way list actually returns results. For the remove test we list all files. Since each backend responds separately, the returned list is ordered according to backend. The files in Swift were first in the list followed by MongoDB so from right to left we see files is Swift are removed first, followed by those in MongoDB.
+The results are summarized in Figure \ref{fig:scaleremovemedian} and the overhead shown in Figure \ref{fig:diffremove}. Again we see the MongoDB instance is quicker than Swift, but this time MongoDB scales with the number of files present, while Swift does not. Sagemongo scales slightly worse than MongoDB by itself, which is somewhat surprising as on the client side Sagemongo only performs an extra string split and a few function calls than MongoDB by itself. However, there is a difference in how Sagemongo and MongoDB stores test data. Sagemongo stores file path and name separately, while directly using MongoDB stores the full path as one entity. I store the file path and name separately in Sagemongo as it is easier to support queries on paths with the two split.
 
 \begin{figure}[h]
 \centering
@@ -170,7 +250,21 @@ Sagerandom follows Sagemongo until the midpoint; then has a few points in the mi
 \label{fig:scaleremovemedian}
 \end{figure}
 
+We see another bump in the Swift times and again it is absent from Sageswift. We do, however, see some variation in Sagerandom with many files. This variation may be similar to the bumps we see in Swift, but it would be incorrect to assume so with the amount of variation we see. Sageswift and Swift have very similar performance, with Sageswift slightly lower than Swift. This could be attributed to how I wrote the scalability test. To test Swift I have to perform a dictionary lookup to get the correct path name while Sageswift is supplied the path already. I do this as the list call returns either a list of paths, such as with Sageswift, or the raw objects from the swiftclient library as done with Swift.
+
+Sagerandom follows Sagemongo until the midpoint; then has a few points in the middle (the medians when exactly 50\% of the points were in each backend), and finally follows Sageswift. Again this shows scaling exactly like the backend the random part is using. The reason we see the three stratifications separated comes from the way list actually returns results. For the remove test we list all files. Since each backend responds separately, the returned list is ordered according to backend. The files in Swift were first in the list followed by MongoDB so from right to left we see files is Swift are removed first, followed by those in MongoDB.
+
+\begin{figure}[h]
+\centering
+\resizebox{.9\linewidth}{!}{
+\includegraphics{figures/plots/scale/all/diffremovemedian}
+}
+\caption{File remove time overhead.}
+\label{fig:diffremove}
+\end{figure}
+
 Overall the scalability of Sage is mostly tied to the backend, or more specifically the backend translator implementation done in Sage. The differences we see are overheads caused by a few issues. Checking if files exist causes overhead for create() calls and formatting returned data causes overhead for list(). The most drastic difference in backends we see is how SageMongo scales for list() compared to MongoDB itself. list() was the only call that increased in time as file size increased for all tests. create() and remove() times were quite static for Swift backends. Mongo create() was static, but SageMongo increased in time as more files were present. Both tests using Mongo showed an increase in remove() time as the number of files increases. 
+
 
 \section{Application Case Study}
 
@@ -182,12 +276,12 @@ I wrote a separate Python script to perform the genome alignments. Using the Sag
 
 After the reference is downloaded, a node can start processing. For a given virus genome, a node grabs it out of Sage and transfers it to the local filesystem (a function provided with Sage). I have to transfer to the local fileystem as the Sage client is a Python module, and Bowtie2 is a standalone binary which uses the system read and write calls. It is possible however to directly use Sage on the local system using FUSE, but this feature remains unimplemented and is discussed as potential future work in Chapter \ref{chapter:conc}. After the virus genome is local to a machine Bowtie2 is run with default local scoring parameters. Bowtie2 looks for a local alignment comparing virus to human sequence. One complete the output file is placed back into Sage. I chose to upload results back into the same location the original viral sequence was from. This decision was made in an attempt to even the load at each Swift repository. I am guaranteed that while an upload is taking place at a given location, a download is not occurring at the same time as each node is responsible for all sequence at only one location. It took upwards of 36 hours to to align all 5534 sequences and produce the results. Only 36 probable alignments were found, but the actual results are unimportant. What is important is that the application was able to take advantage of the physical location of files in Sage, and process based on that information. Additionally the application was able to choose where to upload the results enabling the application to distribute server load across the filesystem backends.
 
-This application was ideal to show off the file placement features of Sage. The application can partition computation based on querying file locations within Sage, and distribute load across Sage backends when uploading files. In the next section, we take a look at types of applications that can take advantage of Sage's features, and those that can not.
+This application was ideal to show off the file placement features of Sage. The application can partition computation based on querying file locations within Sage, and distribute load across Sage backends when uploading files. The application can use file locations as the translator names I defined refer to actual locations. Applications can get the hostname or IP address of backends, but not specific latitude on longitudes. In the next section, we take a look at types of applications that can take advantage of Sage's features, and those that can not.
 
 
 \section{Application function and Sage}
 
-The architecture of Sage allows applications to access files with a common API regardless of the actual API of the backend store. This feature allows us to build applications that can use an assortment of backends, but stay ignorant of the underlying API. Furthermore, Sage exposes the physical location of backends that allows applications to take advantage of file location and control file placement. There are many types of applications that could take advantage of Sage’s features. In this section we take a look at a few types of applications that would benefit from using Sage, and others that would not.
+The architecture of Sage allows applications to access files with a common API regardless of the actual API of the backend store. This feature allows us to build applications that can use an assortment of backends, but stay ignorant of the underlying API. Furthermore, Sage exposes the location of backends (through the IP address) that allows applications to take advantage of file location and control file placement. There are many types of applications that could take advantage of Sage’s features. In this section we take a look at a few types of applications that would benefit from using Sage, and others that would not.
 
 \subsection{Leveraging Sage}
 
@@ -197,9 +291,9 @@ Another benefit of using Sage is applications that write many independent files 
 
 Applications that use read only files can also benefit from using Sage. Sage allows file access from remote locations via client REST calls. If data is never written to an opened file, Sage never runs into any consistency issues, and multiple readers can have access to the same file. In the genome searching application, the human reference genome indexes is a great candidate for this functionality. Each remote site needs an identical copy of the reference and can grab it from the filesystem directly, instead of having to pull it from a different service. In both cases it may seem like just downloading a file, but consider that interacting with Sage uses posix like filesystem commands, while downloading something from the web requires an HTTP client. The application has to communicate with two separate protocols, the filesystem API and HTTP. Using Sage, the application only has to use the filesystem API. Additionally if Sage had a FUSE implementation, applications could mount a Sage instance then read and write remote files using normal operating system calls.
 
-Applications that can take advantage of the exposed physical location of files can also benefit from using Sage. In the genome searching application, I partitioned the viral genome files placing approximately one third at each of three physical locations. I was then able to partition the alignment computation based on the physical partitioning of the files. Now consider the Green Cities application from Chapter \ref{chapter:intro}. Suppose the application partitioned images across multiple Sage backends, and had distributed nodes like the genome searching application. Using Sage would allow the application to move its greenspace computation to nodes closes to required images to reduce file transfer times. If for example, the application had the same backend Swift stores as the genome searching application, and had compute nodes in Seattle and New York, Sage would allow the compute nodes to work on the closest subset of satellite images. This  could be accomplished by partitioning computation on image path name, which to the application looks just like two directories of images. 
+Applications that can take advantage of the exposed location of files can also benefit from using Sage. In the genome searching application, I partitioned the viral genome files placing approximately one third at each of three locations. I was then able to partition the alignment computation based on the physical partitioning of the files. Now consider the Green Cities application from Chapter \ref{chapter:intro}. Suppose the application partitioned images across multiple Sage backends, and had distributed nodes like the genome searching application. Using Sage would allow the application to move its greenspace computation to nodes closes to required images to reduce file transfer times. If for example, the application had the same backend Swift stores as the genome searching application, and had compute nodes in Seattle and New York, Sage would allow the compute nodes to work on the closest subset of satellite images. This  could be accomplished by partitioning computation on image path name, which to the application looks just like two directories of images. 
 
-Another example application is one where sensitive data is partitioned across Canada and the US. Consider an application that handles financial records or school grades. For this application Canadian records must be stored in Canada while US records must reside in the US. Using Sage, the application can safely place sensitive files in the correct physical location while still being able to access all files as part of a larger filesystem.
+Another example application is one where sensitive data is partitioned across Canada and the US. Consider an application that handles financial records or school grades. For this application Canadian records must be stored in Canada while US records must reside in the US. Using Sage, the application can safely place sensitive files in the correct location while still being able to access all files as part of a larger filesystem.
 
 Finally, consider a user with a collection of remote resources. An account on cloud storage platforms Dropbox, Google Drive, and Amazon S3. Suppose the user has limited capacity on each cloud platform, but wants to store more files than can fit on one platform. Using Sage the user can aggregate all their cloud storage into a single filesystem. This aggregation is especially useful in personal or smaller cloud environments where physical resources are not especially abundant.
 
@@ -209,4 +303,4 @@ Sage is great for location aware applications or aggregating resources. However,
 
 Unfortunately file locking and consistency are difficult problems to solve and as discussed in Chapters \ref{chapter:arch} and \ref{chapter:conc} there needs to be some guarantee of atomicity at some level to implement solutions. As seen in Chapter \ref{chapter:rel_work} GFS works around this by having an atomic append operation while other filesystems behave like Sage with last write wins semantics.
 
-Applications that rely heavily on performance will also struggle using Sage. We saw earlier this Chapter in sections \ref{sec:microbench} and \ref{sec:scaleability} that Sage has some performance overhead. The goal of Sage is to aggregate remote storage together and to expose physical location to the application, not raw performance. If an application heavily relied on the performance of a backend store, the application should directly access the backend rather than go through Sage.
+Applications that rely heavily on performance will also struggle using Sage. We saw earlier this Chapter in sections \ref{sec:microbench} and \ref{sec:scaleability} that Sage has some performance overhead. The goal of Sage is to aggregate remote storage together and to expose location to the application, not raw performance. If an application heavily relied on the performance of a backend store, the application should directly access the backend rather than go through Sage.

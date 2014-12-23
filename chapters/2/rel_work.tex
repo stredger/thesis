@@ -19,12 +19,79 @@ Clients mount NFS locally interacting with their systems virtual filesystem (VFS
 
 Another big player in distributed filesystems is the Andrew Filesystem (AFS). Originally developed for the Andrew computing environment at Carnegie Mellon University \cite{Howard1988,Howard1988a,Howard1985}, AFS takes a different approach than NFS. It tries to move away from the central server of NSF and spread out filesystem operation over many smaller servers. These ``file servers'' are each responsible for sets of files logically called volumes. Each file server can be responsible for multiple volumes, but each volume is managed by one server. File servers store access control lists to handle authorization and hand out file locks and authentication tokens to clients to handle file access. A location database holds a mapping of files to file servers, which is organized into logical paths. Each file server has a location database that, when queried, can either return the requested file if present or return the file server that holds the requested file. AFS uses client side caching to store files, when a client opens a file, a copy of it is sent to the clients machine and cached where it can be manipulated locally. The cached file is pushed back to the server when the file is closed. A client side cache manager handles cache consistency and filesystem namespace lookups. The cache manager keeps a copy of the filesystem directory tree so file lookups can be done without contacting the file servers. File servers are responsible for invalidating the cache managers contents including any cached files or filesystem structure. 
 
-NFS and AFS demonstrate two different designs in distributed filesystems. NFS has distributed clients but one central component that deals with filesystem requests. This simplifies dealing with consistency and locking issues, but introduces a single bottleneck. AFS distributes requests over multiple servers but must now have some structure describing how to access files, in this case a location database, which must be managed by the system. These two ideas have been the major driving force behind distributed filesystem development. In the next sections, we survey the landscape of distributed filesystems. First we will take a look at distributed filesystems that use centralized management, then examine those with decentralized management, and finally visit some filesystems that aggregate resources together.
+
+\begin{table}
+\centering
+\begin{tabular}[h]{p{3cm}|p{8cm}}
+
+\textbf{Management} & \textbf{Filesystems Discussed} \\
+\hline
+Centralized & NFS, SGFS, Cegor, Fast Secure Read Only, TidyFS, EDG, Panasas, XtreemFS, Lustre, GPFS, PARTE, GFS, HDFS, MooseFS \\
+Distributed & Deceit, Echo, G-HBA, Gluster, BlobSeer, zFS, xFS, Tahoe, JigDFS, Coda, DNM, DMooseFS, Ceph \\
+Aggregation & InterMezzo, TDFS, IncFS, Gmount, Chirp, TLDFS \\
+\\
+
+\end{tabular}
+\caption{Distributed Filesystems Overview}
+\label{tab:reloverview}
+\end{table}
+
+
+
+NFS and AFS demonstrate two different designs in distributed filesystems. NFS has distributed clients but one central component that deals with filesystem requests. This simplifies dealing with consistency and locking issues, but introduces a single bottleneck. AFS distributes requests over multiple servers but must now have some structure describing how to access files, in this case a location database, which must be managed by the system. These two ideas have been the major driving force behind distributed filesystem development. In the next sections, we survey the landscape of distributed filesystems. Table \ref{tab:reloverview} shows an overview of all the distributed filesystems we examine in this chapter. First we will take a look at filesystems that use centralized management, then examine those with decentralized management, and finally visit those that aggregate resources together.
 
 
 \section{Centralized Management}
 
-New classes of applications that require high throughput access to file data, either reads or writes, has spurred developments for centralized filesystems. In this section, we examine filesystems with centralized management specifically their design decisions and goals.
+New classes of applications that require high throughput access to file data, either reads or writes, has spurred developments for centralized filesystems. In this section, we examine filesystems with centralized management. Table \ref{tab:centralized} gives an overview of the filesystems examined in this section.
+
+\begin{table}
+\centering
+\begin{tabular}[h]{l|l|l|l}
+
+\textbf{Filesystem} & \textbf{Replication} & \textbf{Locking} & \textbf{Data} \\
+\hline
+NFS & RAID & Centralized & Centralized \\
+SGFS & RAID & Centralized & Centralized \\
+Cegor & RAID & Centralized & Centralized \\
+Fast Secure Read Only & Whole Filesystem & N/A & Distributed \\
+TidyFS & Data Blocks & Centralized & Distributed \\
+EDG & Whole Files & Centralized & Distributed \\
+Panasas & RAID & Centralized & Striped \\
+XtreemFS & Whole Files & Distributed & Distributed \\
+Lustre & Data Blocks & Centralized & Striped \\
+GPFS & RAID & Centralized & Distributed \\
+PARTE & Metadata & Distributed & Distributed \\
+GFS & Data Blocks & Centralized & Distributed \\
+HDFS & Data Blocks & Centralized & Distributed \\
+MooseFS & Data Blocks & Centralized & Distributed \\
+
+\end{tabular}
+\caption{Centralized Management Filesystems}
+\label{tab:centralized}
+\end{table}
+
+
+The user level secure Grid filesystem (SGFS) \cite{Figueiredo2007} modifies
+the NFS protocol to use SSL to ensure secure communication in a grid
+environment. It modifies NFS by adding proxies at the endpoints of
+communication that encrypt NSF traffic using SSL. SGFS allows users to choose
+between encrypting and digitally signing messages for security or just
+digitally signing to improve performance over the former. Additionally the
+protocols used to encrypt and sign messages can be chosen by the user.
+
+Cegor \cite{Shi2004} is an NFS like filesystem, where clients interact with
+servers to handle both file data and metadata requests. Connections in Cegor
+revolve around the notion of semantic views. Normally connections are handled
+through the TCP/IP stack of the server, but in Cegor both clients and servers
+store information that allows communication even when network connections
+disconnect and reconnect with a different TCP connection. This allows clients
+to move between networks and not lose connection to the filesystem, or have to
+reconnect entering credentials again. The actual filesystem consists of an NFS
+like server to serve files and communicate with clients. Clients are allowed
+to cached data and take out read/write leases on files. If a client
+disconnects, a reconciliation step happens where the client validates its
+cache, and then performs the modifications on the new cache contents.
 
 The fast secure read only filesystem \cite{Fu2000} is a read-only filesystem
 that focuses on availability and security. To achieve high availability it
@@ -173,7 +240,7 @@ consistency when a new lock is requested.
 
 GPFS \cite{Schmuck2002} is a large filesystem which uses unix like inodes and
 directories, but stripes file blocks over multiple storage nodes to improve
-concurrent access to the file. File blocks are typically 256kB and a single
+concurrent access to the file. File blocks are typically 256KB and a single
 file may be striped over multiple nodes with block placement determined in a
 round robin format around the nodes in the filesystem. Every file has a
 metanode which is somewhat equivalent to a standard filesystem inode and
@@ -252,31 +319,6 @@ locations can be cached. Although clients still need to contact the master for
 leases if they have expired.
 
 
-TLDFS \cite{Wang2007} is a layered distributed filesystem consisting of a
-block device layer, which handles where actual data blocks reside, and a
-system layer which handles locking and communication between different
-filesystem components. The block device layer aggregates all the physical
-storage of the nodes in the filesystem and makes it appear as one large
-resource (when it is in fact a pool of smaller resources). This layer is
-responsible for converting logical addresses from the system layer into
-physical addresses of individual machines. The layer also sends out heartbeat
-messages to all connected storage machines in order to keep track of who
-remains in the filesystem. This allows machines to attach dynamically without
-having to notify the system level of the filesystem. The system layer manages
-filesystem components in both userspace and kernel space of client machines.
-Each node has lock server which is used to manage consistency. The lock server
-maintains queues of locks on individual inodes (called blocks) within the
-filesystem with a given lock server responsible for a set of blocks. Locks are
-either read or write, and have the classic multiple reader one writer
-semantics. When a client writes a file, it acquires a write lock, performs
-file modifications in a local buffer, then flushes the buffer back to the
-server when the lock is released. The filesystem layer also contains an
-interconnect module which contacts all other client nodes within TLDFS using
-heartbeat messages. The interconnect module allows client nodes to request
-locks from the lock manager present on others, and therefore manipulate files
-maintained in other parts of the filesystem.
-
-
 The Hadoop Distributed File System (HDFS) \cite{Shvachko2010} is an integral
 part of the Hadoop Map Reduce Framework, and was created to service the need
 for large scale MapReduce jobs. HDFS is designed to support a very large
@@ -316,8 +358,37 @@ mounted on their local system.
 
 
 
-
 \section{Distributed Metadata Management}
+
+
+In this section we look at filesystems with distributed management, as well as some techniques to do so. Table \ref{tab:distributed} gives an overview of the filesystems discussed.
+
+
+\begin{table}
+\centering
+\begin{tabular}[h]{l|l|l|l}
+
+\textbf{Filesystem} & \textbf{Replication} & \textbf{Locking} & \textbf{Data} \\
+\hline
+Deceit & Whole Files & Centralized & Distributed \\
+Echo & Whole Files & Distributed & Distributed \\
+G-HBA & N/A & Distributed & Distributed \\
+Gluster & Whole Files & None & Distributed \\
+BlobSeer & Versioning & N/A & Distributed \\
+zFS & N/A & Distributed & Distributed \\
+xFS & Data Stripes & Distributed & Striped \\
+Tahoe & N/A & Distributed & Distributed \\
+JigDFS & N/A & Distributed & Distributed \\
+Coda & Whole Files & Distributed & Distributed \\
+DNM & N/A & Distributed & Distributed \\
+DMooseFS & Whole Files & Distributed & Distributed \\
+Ceph & Whole Files & Distributed & Distributed \\
+
+\end{tabular}
+\caption{Distributed Management Filesystems}
+\label{tab:distributed}
+\end{table}
+
 
 
 Deceit \cite{Siegel1990} is a filesystem that extends NFS. Normally to access
@@ -350,22 +421,6 @@ conflicting answers from two different tables, however upper level directories
 are modified much less than the leaves of directory trees.
 
 
-Tahoe \cite{Wilcox-O'Hearn2008} is a distributed metadata filesystem with
-emphasis on file security. Files and directories (as metadata are just files
-in Tahoe) are distributed throughout hosts in the filesystem using erasure
-coding. As an aside erasure coding is a way of encoding data which is very
-failure resilient. Erasure coding takes a message with K symbols and expands
-it to N symbols, N = K + M, where M are redundant symbols. To reconstruct the
-message from N we only need K symbols out of the N.  Tahoe uses the two
-erasure parameters N, the number of hosts a file is distributed to, and K, the
-number of hosts required to be available for the file to be available. This
-way Tahoe can distribute files over N hosts but only require K of them to be
-available to recover a file. Tahoe also heavily encrypts data with AES and
-uses SHA256 signatures to ensure data integrity. Individual files have
-capabilities stored with them which address what clients can do (or not do) to
-files.
-
-
 Group-based Hierarchical Bloom filter Array (G-HBA) \cite{Hua2007} is a scheme
 to manage distributed metadata using bloom filters to distribute metadata over
 a number of Metadata Servers (MDSs). Bloom filters are structures which can be
@@ -395,7 +450,7 @@ to. Not having a metadata server removes a single point of failure in the
 system, but also makes it so that last write wins in consistency semantics, as
 there is no watchdog over how many clients are reading and writing a given
 file. Clients can mount Gluster filesystem through a FUSE module. OpenStack
-Swift \todo{cite{SWIFT????} } works in a similar way using a hash function to
+Swift works in a similar way using a hash function to
 partition data over nodes. Swift however is an object storage system and
 clients interact over a REST interface to contact the storage system.
 
@@ -500,6 +555,21 @@ queue.  This ensures that all up to date replicas have applied the updates in
 the same order.
 
 
+Tahoe \cite{Wilcox-O'Hearn2008} is a distributed metadata filesystem with
+emphasis on file security. Files and directories (as metadata are just files
+in Tahoe) are distributed throughout hosts in the filesystem using erasure
+coding. As an aside erasure coding is a way of encoding data which is very
+failure resilient. Erasure coding takes a message with K symbols and expands
+it to N symbols, N = K + M, where M are redundant symbols. To reconstruct the
+message from N we only need K symbols out of the N.  Tahoe uses the two
+erasure parameters N, the number of hosts a file is distributed to, and K, the
+number of hosts required to be available for the file to be available. This
+way Tahoe can distribute files over N hosts but only require K of them to be
+available to recover a file. Tahoe also heavily encrypts data with AES and
+uses SHA256 signatures to ensure data integrity. Individual files have
+capabilities stored with them which address what clients can do (or not do) to
+files.
+
 JigDFS \cite{Bian2009} is a distributed filesystem with a high emphasis put on
 security. Much like Tahoe, JigDFS splits up files using erasure codes and
 stored on multiple machines, however the erasure codes are used iteratively
@@ -529,7 +599,7 @@ provides conflict detection to identify when a file is updated on two separate
 clients. If the files modifications do not conflict, Coda automatically
 resolves the conflict, otherwise a new file is created and the conflict must
 be resolved manually. Interestingly Dropbox takes the same approach to
-resolving conflicts and disconnected operation \todo{cite{DROPBOX???}}.
+resolving conflicts and disconnected operation.
 
 
 DNM \cite{Wei2000} attempts to distribute metadata namespace over metadata
@@ -597,13 +667,26 @@ linked into applications, or through a kernel module.
 
 \section{Existing Filesystem Aggregation and other Concepts}
 
-The user level secure Grid filesystem (SGFS) \cite{Figueiredo2007} modifies
-the NFS protocol to use SSL to ensure secure communication in a grid
-environment. It modifies NFS by adding proxies at the endpoints of
-communication that encrypt NSF traffic using SSL. SGFS allows users to choose
-between encrypting and digitally signing messages for security or just
-digitally signing to improve performance over the former. Additionally the
-protocols used to encrypt and sign messages can be chosen by the user.
+In this section we look at filesystems that aggregate components together to form a larger system. Sage fits into this category as it aggregates many backends into a single system. Table \ref{tab:aggregate} shows the filesystems observed in this section.
+
+\begin{table}
+\centering
+\begin{tabular}[h]{l|l|l|l}
+
+\textbf{Filesystem} & \textbf{Replication} & \textbf{Locking} & \textbf{Data} \\
+\hline
+InterMezzo & RAID & Centralized & Distributed \\
+TDFS & RAID & Distributed & Distributed \\
+IncFS & RAID & Distributed & Distributed \\
+Gmount & N/A & None & Distributed \\
+Chirp & N/A & Centralized & Distributed \\
+TLDFS & N/A & Distributed & Distributed \\
+
+\end{tabular}
+\caption{Distributed Management Filesystems}
+\label{tab:aggregate}
+\end{table}
+
 
 
 The InterMezzo \cite{Braam1999} filesystem is a layered filesystem that
@@ -665,15 +748,30 @@ and does so by passing around authentication tokens to make sure clients can
 only access data they are authorized for.
 
 
-Cegor \cite{Shi2004} is an NFS like filesystem, where clients interact with
-servers to handle both file data and metadata requests. Connections in Cegor
-revolve around the notion of semantic views. Normally connections are handled
-through the TCP/IP stack of the server, but in Cegor both clients and servers
-store information that allows communication even when network connections
-disconnect and reconnect with a different TCP connection. This allows clients
-to move between networks and not lose connection to the filesystem, or have to
-reconnect entering credentials again. The actual filesystem consists of an NFS
-like server to serve files and communicate with clients. Clients are allowed
-to cached data and take out read/write leases on files. If a client
-disconnects, a reconciliation step happens where the client validates its
-cache, and then performs the modifications on the new cache contents.
+TLDFS \cite{Wang2007} is a layered distributed filesystem consisting of a
+block device layer, which handles where actual data blocks reside, and a
+system layer which handles locking and communication between different
+filesystem components. The block device layer aggregates all the physical
+storage of the nodes in the filesystem and makes it appear as one large
+resource (when it is in fact a pool of smaller resources). This layer is
+responsible for converting logical addresses from the system layer into
+physical addresses of individual machines. The layer also sends out heartbeat
+messages to all connected storage machines in order to keep track of who
+remains in the filesystem. This allows machines to attach dynamically without
+having to notify the system level of the filesystem. The system layer manages
+filesystem components in both userspace and kernel space of client machines.
+Each node has lock server which is used to manage consistency. The lock server
+maintains queues of locks on individual inodes (called blocks) within the
+filesystem with a given lock server responsible for a set of blocks. Locks are
+either read or write, and have the classic multiple reader one writer
+semantics. When a client writes a file, it acquires a write lock, performs
+file modifications in a local buffer, then flushes the buffer back to the
+server when the lock is released. The filesystem layer also contains an
+interconnect module which contacts all other client nodes within TLDFS using
+heartbeat messages. The interconnect module allows client nodes to request
+locks from the lock manager present on others, and therefore manipulate files
+maintained in other parts of the filesystem.
+
+\section{SageFS comparison}
+
+SageFS is an aggregation based filesystem focused on flexability and exposing backends to applications. The flexability of SageFS allows any of the filesystems mentioned in this chapter to become backends for SageFS, as well as data stores not traditionally viewed as filesystems. In Chapter \ref{chapter:exp} MongoDB and Swift are used as backend stores which are quite different, but to an application they appear to have the same functionality. Sage sets itself apart from the systems mentioned here by; being flexable allowing many backends, exposing backend location to applications, and by being lightweight. 
