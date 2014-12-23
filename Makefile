@@ -8,6 +8,9 @@ endif
 open: doc
 	$(OPEN) thesis.pdf
 
+submit: doc
+	cp thesis.pdf Tredger_Stephen_MSc_2014.pdf
+
 doc:
 	pdflatex thesis.tex
 	pdflatex thesis.tex
